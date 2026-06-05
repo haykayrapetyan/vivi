@@ -8,12 +8,8 @@ import { ArrowUp, FileCheck2, Loader2, Sparkles } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const SUGGESTIONS = [
-  "Senior Frontend разработчик, React, удалённо",
-  "Менеджер по продажам B2B в Москве",
-  "Продуктовый дизайнер, гибрид, middle+",
-];
+import { useT } from "@/lib/i18n/client";
+import { interpolate } from "@/lib/i18n/dictionaries";
 
 export function VacancyChat({
   vacancyId,
@@ -23,6 +19,12 @@ export function VacancyChat({
   initialMessages: UIMessage[];
 }) {
   const router = useRouter();
+  const t = useT();
+  const suggestions = [
+    t.chat.suggestion1,
+    t.chat.suggestion2,
+    t.chat.suggestion3,
+  ];
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -61,13 +63,12 @@ export function VacancyChat({
               <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Sparkles className="size-5" />
               </div>
-              <h2 className="text-lg font-medium">Опишите вакансию</h2>
+              <h2 className="text-lg font-medium">{t.chat.emptyTitle}</h2>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Напишите пару слов о роли — я задам уточняющие вопросы и помогу
-                собрать описание и вопросы для видеоинтервью.
+                {t.chat.emptySubtitle}
               </p>
               <div className="mt-6 flex flex-col gap-2">
-                {SUGGESTIONS.map((s) => (
+                {suggestions.map((s) => (
                   <button
                     key={s}
                     onClick={() => sendMessage({ text: s })}
@@ -89,7 +90,7 @@ export function VacancyChat({
 
           {error && (
             <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              Ошибка: {error.message}. Проверьте, что задан OPENAI_API_KEY.
+              {interpolate(t.chat.error, { message: error.message })}
             </div>
           )}
         </div>
@@ -108,7 +109,7 @@ export function VacancyChat({
                 }
               }}
               rows={1}
-              placeholder="Сообщение AI-рекрутеру…"
+              placeholder={t.chat.placeholder}
               className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             />
             <Button
@@ -124,9 +125,6 @@ export function VacancyChat({
               )}
             </Button>
           </div>
-          <p className="mt-1.5 px-1 text-center text-[11px] text-muted-foreground">
-            AI может ошибаться. Проверяйте важные детали.
-          </p>
         </div>
       </div>
     </div>
@@ -134,6 +132,7 @@ export function VacancyChat({
 }
 
 function MessageBubble({ message }: { message: UIMessage }) {
+  const t = useT();
   const isUser = message.role === "user";
 
   return (
@@ -168,7 +167,7 @@ function MessageBubble({ message }: { message: UIMessage }) {
                 ) : (
                   <Loader2 className="size-3.5 animate-spin" />
                 )}
-                {done ? "Черновик вакансии обновлён" : "Собираю черновик…"}
+                {done ? t.chat.draftUpdated : t.chat.draftUpdating}
               </div>
             );
           }

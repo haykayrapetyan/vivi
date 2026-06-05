@@ -125,6 +125,20 @@ export async function setVacancyClosed(id: string, closed: boolean) {
   revalidatePath(`/app/v/${id}`);
 }
 
+export async function updateVacancyDescription(
+  id: string,
+  descriptionMd: string,
+) {
+  const user = await requireUser();
+  const owned = await getOwnedVacancy(id, user.id);
+  if (!owned) throw new Error("Вакансия не найдена");
+  await db
+    .update(vacancy)
+    .set({ descriptionMd: descriptionMd.trim() || null })
+    .where(eq(vacancy.id, id));
+  revalidatePath(`/app/v/${id}`);
+}
+
 // Replaces interview questions for a vacancy (used by manual edits).
 export async function replaceQuestions(id: string, questions: string[]) {
   const user = await requireUser();

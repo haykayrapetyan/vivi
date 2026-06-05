@@ -17,7 +17,10 @@ import {
   renameVacancy,
 } from "@/app/app/actions";
 import type { VacancyStatus } from "@/lib/db/schema";
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +57,7 @@ export function AppSidebar({
   vacancies: VacancyItem[];
 }) {
   const pathname = usePathname();
+  const t = useT();
   const [creating, startCreate] = useTransition();
 
   return (
@@ -62,6 +66,10 @@ export function AppSidebar({
         <Link href="/" className="text-base font-semibold tracking-tight">
           Vivi
         </Link>
+        <div className="flex items-center">
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="px-3">
@@ -72,7 +80,7 @@ export function AppSidebar({
           onClick={() => startCreate(() => createVacancy())}
         >
           <Plus className="size-4" />
-          Новая вакансия
+          {t.sidebar.newVacancy}
         </Button>
       </div>
 
@@ -80,9 +88,7 @@ export function AppSidebar({
         <div className="space-y-0.5 pb-3">
           {vacancies.length === 0 ? (
             <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-              Пока нет вакансий.
-              <br />
-              Создайте первую.
+              {t.sidebar.noVacancies}
             </p>
           ) : (
             vacancies.map((v) => (
@@ -108,6 +114,7 @@ function VacancyRow({
   vacancy: VacancyItem;
   active: boolean;
 }) {
+  const t = useT();
   const [renameOpen, setRenameOpen] = useState(false);
   const [title, setTitle] = useState(vacancy.title);
   const [pending, startTransition] = useTransition();
@@ -136,7 +143,7 @@ function VacancyRow({
           <DropdownMenuTrigger asChild>
             <button
               className="opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
-              aria-label="Действия"
+              aria-label={t.common.edit}
             >
               <MoreHorizontal className="size-4 text-muted-foreground" />
             </button>
@@ -144,7 +151,7 @@ function VacancyRow({
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem onSelect={() => setRenameOpen(true)}>
               <Pencil className="size-4" />
-              Переименовать
+              {t.sidebar.rename}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -154,7 +161,7 @@ function VacancyRow({
               }
             >
               <Trash2 className="size-4" />
-              Удалить
+              {t.common.delete}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -163,10 +170,10 @@ function VacancyRow({
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Переименовать вакансию</DialogTitle>
+            <DialogTitle>{t.sidebar.renameTitle}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="rename">Название</Label>
+            <Label htmlFor="rename">{t.sidebar.nameLabel}</Label>
             <Input
               id="rename"
               value={title}
@@ -176,7 +183,7 @@ function VacancyRow({
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRenameOpen(false)}>
-              Отмена
+              {t.common.cancel}
             </Button>
             <Button
               disabled={pending}
@@ -187,7 +194,7 @@ function VacancyRow({
                 })
               }
             >
-              Сохранить
+              {t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -202,6 +209,7 @@ function UserMenu({
   user: { name: string; email: string; image: string | null };
 }) {
   const router = useRouter();
+  const t = useT();
   const initials = (user.name || user.email).slice(0, 2).toUpperCase();
 
   return (
@@ -219,7 +227,7 @@ function UserMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-56">
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {user.name || "Без имени"}
+            {user.name || t.sidebar.noName}
             <div className="truncate">{user.email}</div>
           </div>
           <DropdownMenuSeparator />
@@ -233,7 +241,7 @@ function UserMenu({
             }
           >
             <LogOut className="size-4" />
-            Выйти
+            {t.sidebar.signOut}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -9,6 +9,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useT } from "@/lib/i18n/client";
 import { VacancyPanel, type PanelVacancy } from "./vacancy-panel";
 import type { CandidateRow } from "./candidates-review";
 
@@ -21,12 +22,13 @@ export function VacancyPanelSheet({
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
 }) {
+  const t = useT();
   return (
     <Sheet>
       <SheetTrigger asChild>
         <Button variant="outline" size="sm" className="lg:hidden">
           <PanelRight />
-          Детали
+          {t.panel.details}
           {candidates.length > 0 && (
             <span className="ml-0.5 rounded-full bg-muted px-1.5 text-[10px] tabular-nums">
               {candidates.length}

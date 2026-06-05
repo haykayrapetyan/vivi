@@ -27,7 +27,12 @@ visual style is minimalist dark, Linear-inspired.
 Next.js 16 (App Router) · React 19 · TypeScript · Tailwind v4 · shadcn/ui
 (radix base) · Drizzle ORM + Postgres · better-auth (magic link) · Resend
 (email) · Vercel AI SDK v6 (`ai`, `@ai-sdk/openai`, `@ai-sdk/react`) ·
-react-markdown · Vitest.
+react-markdown · next-themes (light/dark) · cookie-based RU/EN i18n · Vitest.
+
+## Theme & i18n
+
+- **Theme**: `next-themes` via `src/components/providers.tsx` (attribute=class, default dark). `ThemeToggle` switches via the `dark`/`light` class on `<html>`; light/dark tokens live in `globals.css` (`:root` = light, `.dark` = dark). Don't hardcode `dark` on `<html>`.
+- **i18n**: cookie `vivi_locale` (no URL segments). Strings live in `src/lib/i18n/dictionaries.ts` — **add every new string to BOTH `ru` and `en`** (the type is derived from `ru`, so TS will flag a missing `en` key). Server: `getServerDictionary()`/`getLocale()` (`i18n/server.ts`). Client: `useT()`/`useLocale()` (`i18n/client.tsx`) — `t.section.key`. Dynamic strings use `{placeholders}` + `interpolate()`. `LanguageSwitcher` calls the `setLocale` action then `router.refresh()`. AI-generated vacancy content is data, not translated.
 
 ## Environment (`.env.local`, see `.env.example`)
 
@@ -49,7 +54,7 @@ react-markdown · Vitest.
 ### Routes / flow
 
 - `/` landing · `/login` magic-link · `/app` dashboard (sidebar = vacancies).
-- `/app/v/[id]` — workspace: left chat (`vacancy-chat.tsx` ↔ `POST /api/vacancy/[id]/chat` streaming with a `save_vacancy` tool), right panel (`vacancy-panel.tsx` with "Вакансия"/"Кандидаты" tabs; `candidates-review.tsx`). On <lg the panel is in a Sheet (`vacancy-panel-sheet.tsx`).
+- `/app/v/[id]` — workspace: left chat (`vacancy-chat.tsx` ↔ `POST /api/vacancy/[id]/chat` streaming with a `save_vacancy` tool), right panel (`vacancy-panel.tsx` with Vacancy/Candidates tabs). The Vacancy tab description and questions are editable inline (`updateVacancyDescription` + `replaceQuestions` actions). `candidates-review.tsx` is a list → detail view: filter by status + sort, and a single video player with a question playlist (click/autoplay-next) instead of stacked players. On <lg the panel is in a Sheet (`vacancy-panel-sheet.tsx`).
 - `/v/[slug]` — public vacancy + apply form → `applyToVacancy` creates a candidate, redirects to the interview.
 - `/interview/[token]` — candidate records webcam answers (`interview-client.tsx`, MediaRecorder) → `POST /api/interview/[token]/answer` (upload) and `.../complete` (mark done + email recruiter).
 - `GET /api/media/answer/[id]` — recruiter-only video streaming (ownership-checked, supports Range).

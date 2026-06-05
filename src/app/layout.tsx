@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Providers } from "@/components/providers";
+import { getLocale } from "@/lib/i18n/server";
+import { getDictionary } from "@/lib/i18n/dictionaries";
 
 const geistSans = Geist({
   variable: "--font-sans",
@@ -20,19 +22,24 @@ export const metadata: Metadata = {
     "Создавайте вакансии в чате с AI, делитесь ссылкой с кандидатами и собирайте видеоинтервью в одном месте.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const dict = getDictionary(locale);
+
   return (
     <html
-      lang="ru"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      lang={locale}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <Providers locale={locale} dict={dict}>
+          {children}
+        </Providers>
         <Toaster position="top-center" richColors />
       </body>
     </html>

@@ -4,11 +4,13 @@ import { useState, useTransition } from "react";
 import { Loader2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { applyToVacancy } from "./actions";
+import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export function ApplyForm({ slug }: { slug: string }) {
+  const t = useT();
   const [pending, start] = useTransition();
   const [form, setForm] = useState({ name: "", email: "", phone: "" });
 
@@ -32,36 +34,37 @@ export function ApplyForm({ slug }: { slug: string }) {
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="name">Имя и фамилия</Label>
+        <Label htmlFor="name">{t.apply.nameLabel}</Label>
         <Input
           id="name"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="Иван Иванов"
+          placeholder={t.apply.namePlaceholder}
           required
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email">{t.apply.emailLabel}</Label>
         <Input
           id="email"
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
-          placeholder="you@email.com"
+          placeholder={t.apply.emailPlaceholder}
           required
         />
       </div>
       <div className="space-y-2">
         <Label htmlFor="phone">
-          Телефон <span className="text-muted-foreground">(необязательно)</span>
+          {t.apply.phoneLabel}{" "}
+          <span className="text-muted-foreground">({t.apply.optional})</span>
         </Label>
         <Input
           id="phone"
           type="tel"
           value={form.phone}
           onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          placeholder="+7 900 000-00-00"
+          placeholder={t.apply.phonePlaceholder}
         />
       </div>
       <Button type="submit" className="w-full" size="lg" disabled={pending}>
@@ -70,11 +73,10 @@ export function ApplyForm({ slug }: { slug: string }) {
         ) : (
           <Video className="size-4" />
         )}
-        Откликнуться и пройти видеоинтервью
+        {t.apply.submit}
       </Button>
       <p className="text-center text-xs text-muted-foreground">
-        После отклика вас ждёт короткое видеоинтервью — отвечайте в удобном
-        темпе.
+        {t.apply.note}
       </p>
     </form>
   );

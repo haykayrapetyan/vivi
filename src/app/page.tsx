@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { ArrowRight, MessagesSquare, Share2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { getSession } from "@/lib/session";
+import { getServerDictionary } from "@/lib/i18n/server";
 
 export default async function Home() {
   const session = await getSession();
+  const t = await getServerDictionary();
 
   return (
     <div className="relative flex min-h-dvh flex-col">
-      {/* ambient glow */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(60%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_22%,transparent),transparent)]"
@@ -16,20 +19,22 @@ export default async function Home() {
 
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
         <span className="text-lg font-semibold tracking-tight">Vivi</span>
-        <nav className="flex items-center gap-2">
+        <nav className="flex items-center gap-1.5">
+          <LanguageSwitcher />
+          <ThemeToggle />
           {session?.user ? (
-            <Button asChild size="sm">
+            <Button asChild size="sm" className="ml-1">
               <Link href="/app">
-                Открыть приложение <ArrowRight className="size-4" />
+                {t.landing.openApp} <ArrowRight className="size-4" />
               </Link>
             </Button>
           ) : (
             <>
               <Button asChild variant="ghost" size="sm">
-                <Link href="/login">Войти</Link>
+                <Link href="/login">{t.landing.signIn}</Link>
               </Button>
               <Button asChild size="sm">
-                <Link href="/login">Начать</Link>
+                <Link href="/login">{t.landing.start}</Link>
               </Button>
             </>
           )}
@@ -39,22 +44,20 @@ export default async function Home() {
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center px-6 pt-20 text-center">
         <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
           <span className="size-1.5 rounded-full bg-primary" />
-          AI создаёт вакансию и проводит видеоинтервью
+          {t.landing.badge}
         </div>
 
         <h1 className="max-w-3xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
-          Нанимайте быстрее с&nbsp;AI&#8209;рекрутером
+          {t.landing.heroTitle}
         </h1>
         <p className="mt-5 max-w-xl text-balance text-lg text-muted-foreground">
-          Опишите вакансию в чате — Vivi уточнит детали, соберёт описание и
-          создаст ссылку с видеоинтервью для кандидатов. Все ответы — в одном
-          месте.
+          {t.landing.heroSubtitle}
         </p>
 
         <div className="mt-8 flex items-center gap-3">
           <Button asChild size="lg">
             <Link href={session?.user ? "/app" : "/login"}>
-              Создать вакансию <ArrowRight className="size-4" />
+              {t.landing.ctaCreate} <ArrowRight className="size-4" />
             </Link>
           </Button>
         </div>
@@ -62,18 +65,18 @@ export default async function Home() {
         <div className="mt-20 grid w-full max-w-4xl gap-4 pb-24 text-left sm:grid-cols-3">
           <Feature
             icon={<MessagesSquare className="size-5" />}
-            title="Чат с AI"
-            text="Опишите вакансию свободным текстом — AI задаст уточняющие вопросы и сформирует описание."
+            title={t.landing.f1Title}
+            text={t.landing.f1Text}
           />
           <Feature
             icon={<Share2 className="size-5" />}
-            title="Ссылка для кандидатов"
-            text="Уникальная страница вакансии с формой отклика — делитесь одной ссылкой."
+            title={t.landing.f2Title}
+            text={t.landing.f2Text}
           />
           <Feature
             icon={<Video className="size-5" />}
-            title="Видеоинтервью"
-            text="Кандидаты отвечают на вопросы под вакансию на видео. Вы оцениваете в удобное время."
+            title={t.landing.f3Title}
+            text={t.landing.f3Text}
           />
         </div>
       </main>

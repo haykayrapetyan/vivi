@@ -4,12 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
+import { useT } from "@/lib/i18n/client";
+import { interpolate } from "@/lib/i18n/dictionaries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { toast } from "sonner";
 
 export default function LoginPage() {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -24,7 +29,7 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message ?? "Не удалось отправить ссылку");
+      toast.error(error.message ?? t.auth.errorSend);
       return;
     }
     setSent(true);
@@ -38,15 +43,19 @@ export default function LoginPage() {
           className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          На главную
+          {t.common.home}
         </Link>
+      </div>
+      <div className="absolute top-5 right-5 flex items-center gap-1">
+        <LanguageSwitcher />
+        <ThemeToggle />
       </div>
 
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="mb-2 text-2xl font-semibold tracking-tight">Vivi</div>
           <p className="text-sm text-muted-foreground">
-            AI-рекрутинг с видеоинтервью
+            {t.common.brandSubtitle}
           </p>
         </div>
 
@@ -55,18 +64,18 @@ export default function LoginPage() {
             <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
               <MailCheck className="size-5" />
             </div>
-            <h1 className="mb-1 text-base font-medium">Проверьте почту</h1>
+            <h1 className="mb-1 text-base font-medium">
+              {t.auth.checkEmailTitle}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Мы отправили ссылку для входа на{" "}
-              <span className="text-foreground">{email}</span>. Ссылка действует
-              5 минут.
+              {interpolate(t.auth.checkEmailDesc, { email })}
             </p>
             <Button
               variant="ghost"
               className="mt-5 text-sm"
               onClick={() => setSent(false)}
             >
-              Использовать другой email
+              {t.auth.useAnotherEmail}
             </Button>
           </div>
         ) : (
@@ -74,18 +83,18 @@ export default function LoginPage() {
             onSubmit={handleSubmit}
             className="rounded-xl border bg-card p-8"
           >
-            <h1 className="mb-1 text-base font-medium">Вход в аккаунт</h1>
+            <h1 className="mb-1 text-base font-medium">{t.auth.title}</h1>
             <p className="mb-6 text-sm text-muted-foreground">
-              Введите email — отправим ссылку для входа.
+              {t.auth.subtitle}
             </p>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t.auth.emailLabel}</Label>
               <Input
                 id="email"
                 type="email"
                 inputMode="email"
                 autoComplete="email"
-                placeholder="you@company.com"
+                placeholder={t.auth.emailPlaceholder}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -94,13 +103,13 @@ export default function LoginPage() {
             </div>
             <Button type="submit" className="mt-5 w-full" disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
-              Отправить ссылку
+              {t.auth.sendLink}
             </Button>
           </form>
         )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Продолжая, вы соглашаетесь с условиями использования.
+          {t.auth.terms}
         </p>
       </div>
     </main>

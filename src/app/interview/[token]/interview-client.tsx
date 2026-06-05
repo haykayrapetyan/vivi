@@ -13,6 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatDuration, pluralRu } from "@/lib/format";
+import { useT, useLocale } from "@/lib/i18n/client";
+import { interpolate } from "@/lib/i18n/dictionaries";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 type Q = { id: string; text: string };
 type Phase = "intro" | "denied" | "question" | "review" | "done";
@@ -45,6 +49,7 @@ export function InterviewClient({
   answeredQuestionIds: string[];
   completed: boolean;
 }) {
+  const t = useT();
   const answered = new Set(answeredQuestionIds);
   const firstUnanswered = questions.findIndex((q) => !answered.has(q.id));
   const startIndex = firstUnanswered === -1 ? questions.length : firstUnanswered;
@@ -177,7 +182,7 @@ export function InterviewClient({
         setPhase("question");
       }
     } catch {
-      setError("Не удалось загрузить ответ. Проверьте соединение и попробуйте снова.");
+      setError(t.interview.uploadError);
     } finally {
       setUploading(false);
     }
@@ -189,13 +194,20 @@ export function InterviewClient({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 bg-[radial-gradient(50%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent)]"
       />
-      <header className="mx-auto flex w-full max-w-2xl items-center justify-between px-6 py-5">
-        <Link href="/" className="text-base font-semibold tracking-tight">
+      <header className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-6 py-5">
+        <Link
+          href="/"
+          className="shrink-0 text-base font-semibold tracking-tight"
+        >
           Vivi
         </Link>
-        <span className="max-w-[60%] truncate text-xs text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
           {vacancyTitle}
         </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-16">
@@ -212,13 +224,12 @@ export function InterviewClient({
             <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <VideoOff className="size-6" />
             </div>
-            <h1 className="text-lg font-medium">Нет доступа к камере</h1>
+            <h1 className="text-lg font-medium">{t.interview.deniedTitle}</h1>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Разрешите доступ к камере и микрофону в настройках браузера, затем
-              попробуйте снова.
+              {t.interview.deniedDesc}
             </p>
             <Button className="mt-6" onClick={start}>
-              Повторить
+              {t.interview.retry}
             </Button>
           </Centered>
         )}
@@ -232,7 +243,10 @@ export function InterviewClient({
             />
 
             <p className="mb-3 mt-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Вопрос {index + 1} из {questions.length}
+              {interpolate(t.interview.progress, {
+                n: index + 1,
+                m: questions.length,
+              })}
             </p>
             <h1 className="mb-5 text-xl font-medium leading-snug">
               {questions[index]?.text}
@@ -272,13 +286,13 @@ export function InterviewClient({
               {phase === "question" && !recording && (
                 <Button size="lg" onClick={startRecording}>
                   <Video className="size-4" />
-                  Записать ответ
+                  {t.interview.record}
                 </Button>
               )}
               {phase === "question" && recording && (
                 <Button size="lg" variant="destructive" onClick={stopRecording}>
                   <span className="size-2.5 rounded-xs bg-white" />
-                  Остановить
+                  {t.interview.stop}
                 </Button>
               )}
               {phase === "review" && (
@@ -290,7 +304,7 @@ export function InterviewClient({
                     disabled={uploading}
                   >
                     <RotateCcw className="size-4" />
-                    Перезаписать
+                    {t.interview.retake}
                   </Button>
                   <Button size="lg" onClick={submit} disabled={uploading}>
                     {uploading ? (
@@ -299,15 +313,14 @@ export function InterviewClient({
                       <Send className="size-4" />
                     )}
                     {index + 1 >= questions.length
-                      ? "Завершить интервью"
-                      : "Отправить и далее"}
+                      ? t.interview.finish
+                      : t.interview.submitNext}
                   </Button>
                 </>
               )}
             </div>
             <p className="mt-3 text-center text-xs text-muted-foreground">
-              Максимум {MAX_SECONDS / 60} мин на ответ. Отвечайте спокойно — можно
-              перезаписать.
+              {interpolate(t.interview.maxNote, { min: MAX_SECONDS / 60 })}
             </p>
           </div>
         )}
@@ -317,11 +330,13 @@ export function InterviewClient({
             <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
               <CheckCircle2 className="size-6" />
             </div>
-            <h1 className="text-lg font-medium">Спасибо, {candidateName}!</h1>
+            <h1 className="text-lg font-medium">
+              {interpolate(t.interview.doneTitle, { name: candidateName })}
+            </h1>
             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
               {questions.length === 0
-                ? "Ваш отклик получен. Рекрутёр свяжется с вами."
-                : "Ваши видеоответы отправлены рекрутёру. Мы свяжемся с вами по итогам рассмотрения."}
+                ? t.interview.doneDescNoQuestions
+                : t.interview.doneDesc}
             </p>
           </Centered>
         )}
@@ -339,34 +354,37 @@ function Intro({
   count: number;
   onStart: () => void;
 }) {
+  const t = useT();
+  const locale = useLocale();
+  const qWord =
+    locale === "ru"
+      ? pluralRu(count, [t.interview.qOne, t.interview.qFew, t.interview.qMany])
+      : count === 1
+        ? t.interview.qOne
+        : t.interview.qMany;
+
   return (
     <Centered>
       <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <Video className="size-6" />
       </div>
-      <h1 className="text-xl font-medium">Здравствуйте, {candidateName}!</h1>
+      <h1 className="text-xl font-medium">
+        {interpolate(t.interview.greeting, { name: candidateName })}
+      </h1>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Вас ждёт короткое видеоинтервью из {count}{" "}
-        {pluralRu(count, ["вопроса", "вопросов", "вопросов"])}. На каждый
-        вопрос — видеоответ с камеры. Можно перезаписать ответ перед отправкой.
+        {interpolate(t.interview.introDesc, { count, questions: qWord })}
       </p>
       <ul className="mt-6 space-y-2 text-left text-sm text-muted-foreground">
-        <li className="flex items-center gap-2">
-          <CheckCircle2 className="size-4 text-primary" />
-          Найдите тихое место с хорошим освещением
-        </li>
-        <li className="flex items-center gap-2">
-          <CheckCircle2 className="size-4 text-primary" />
-          Разрешите доступ к камере и микрофону
-        </li>
-        <li className="flex items-center gap-2">
-          <CheckCircle2 className="size-4 text-primary" />
-          Отвечайте в удобном темпе
-        </li>
+        {[t.interview.tip1, t.interview.tip2, t.interview.tip3].map((tip) => (
+          <li key={tip} className="flex items-center gap-2">
+            <CheckCircle2 className="size-4 text-primary" />
+            {tip}
+          </li>
+        ))}
       </ul>
       <Button size="lg" className="mt-8" onClick={onStart}>
         <Video className="size-4" />
-        Начать интервью
+        {t.interview.start}
       </Button>
     </Centered>
   );
