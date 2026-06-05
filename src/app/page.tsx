@@ -1,65 +1,102 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight, MessagesSquare, Share2, Video } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { getSession } from "@/lib/session";
 
-export default function Home() {
+export default async function Home() {
+  const session = await getSession();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="relative flex min-h-dvh flex-col">
+      {/* ambient glow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(60%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_22%,transparent),transparent)]"
+      />
+
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+        <span className="text-lg font-semibold tracking-tight">Vivi</span>
+        <nav className="flex items-center gap-2">
+          {session?.user ? (
+            <Button asChild size="sm">
+              <Link href="/app">
+                Открыть приложение <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Войти</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/login">Начать</Link>
+              </Button>
+            </>
+          )}
+        </nav>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center px-6 pt-20 text-center">
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
+          <span className="size-1.5 rounded-full bg-primary" />
+          AI создаёт вакансию и проводит видеоинтервью
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <h1 className="max-w-3xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
+          Нанимайте быстрее с&nbsp;AI&#8209;рекрутером
+        </h1>
+        <p className="mt-5 max-w-xl text-balance text-lg text-muted-foreground">
+          Опишите вакансию в чате — Vivi уточнит детали, соберёт описание и
+          создаст ссылку с видеоинтервью для кандидатов. Все ответы — в одном
+          месте.
+        </p>
+
+        <div className="mt-8 flex items-center gap-3">
+          <Button asChild size="lg">
+            <Link href={session?.user ? "/app" : "/login"}>
+              Создать вакансию <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+        </div>
+
+        <div className="mt-20 grid w-full max-w-4xl gap-4 pb-24 text-left sm:grid-cols-3">
+          <Feature
+            icon={<MessagesSquare className="size-5" />}
+            title="Чат с AI"
+            text="Опишите вакансию свободным текстом — AI задаст уточняющие вопросы и сформирует описание."
+          />
+          <Feature
+            icon={<Share2 className="size-5" />}
+            title="Ссылка для кандидатов"
+            text="Уникальная страница вакансии с формой отклика — делитесь одной ссылкой."
+          />
+          <Feature
+            icon={<Video className="size-5" />}
+            title="Видеоинтервью"
+            text="Кандидаты отвечают на вопросы под вакансию на видео. Вы оцениваете в удобное время."
+          />
         </div>
       </main>
+    </div>
+  );
+}
+
+function Feature({
+  icon,
+  title,
+  text,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+}) {
+  return (
+    <div className="rounded-xl border bg-card/50 p-5">
+      <div className="mb-3 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </div>
+      <h3 className="mb-1 text-sm font-medium">{title}</h3>
+      <p className="text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }

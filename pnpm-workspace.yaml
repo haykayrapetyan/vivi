@@ -1,3 +1,8 @@
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+overrides:
+  # better-auth's kysely-adapter imports migrator constants from kysely's main
+  # entry, which 0.29.x no longer re-exports. Pin to 0.28.x.
+  kysely: 0.28.17
