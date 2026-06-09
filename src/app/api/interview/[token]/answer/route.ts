@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { candidate, interviewAnswer, interviewQuestion } from "@/lib/db/schema";
 import { getCandidateByToken } from "@/lib/data";
 import { saveVideo } from "@/lib/storage";
+import { transcribeBuffer } from "@/lib/ai-eval";
 
 export const maxDuration = 60;
 
@@ -27,8 +28,14 @@ export async function POST(
   if (!questionId || !(file instanceof Blob)) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
+  if (file.size === 0) {
+    return NextResponse.json({ error: "Empty file" }, { status: 400 });
+  }
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: "File too large" }, { status: 413 });
+  }
+  if (file.type && !file.type.startsWith("video/")) {
+    return NextResponse.json({ error: "Invalid file type" }, { status: 415 });
   }
 
   // Validate the question belongs to this candidate's vacancy.
@@ -50,7 +57,10 @@ export async function POST(
   const ext = mimeType.includes("mp4") ? "mp4" : "webm";
   const buffer = Buffer.from(await file.arrayBuffer());
   const key = `answers/${cand.id}/${questionId}.${ext}`;
-  await saveVideo(key, buffer);
+  await saveVideo(key, buffer, mimeType);
+
+  // Transcribe now (best-effort) so evaluation at completion is fast.
+  const transcript = await transcribeBuffer(buffer);
 
   // Upsert: one answer per (candidate, question).
   await db
@@ -67,6 +77,7 @@ export async function POST(
     videoPath: key,
     mimeType,
     durationSec,
+    transcript,
   });
 
   if (cand.status === "applied") {

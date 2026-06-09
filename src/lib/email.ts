@@ -73,6 +73,22 @@ export async function sendMagicLinkEmail(to: string, url: string) {
   });
 }
 
+export async function sendOrgInvitationEmail(
+  to: string,
+  args: { orgName: string; inviterName: string; url: string },
+) {
+  const html = brandWrap(`
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;"><b>${args.inviterName}</b> приглашает вас в команду <b>${args.orgName}</b> в Vivi.</p>
+    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Принять приглашение</a>
+  `);
+  await send({
+    to,
+    subject: `Приглашение в команду ${args.orgName} — Vivi`,
+    html,
+    text: `${args.inviterName} приглашает вас в команду «${args.orgName}» в Vivi. Принять: ${args.url}`,
+  });
+}
+
 export async function sendInterviewCompletedEmail(
   to: string,
   args: { candidateName: string; vacancyTitle: string; url: string },

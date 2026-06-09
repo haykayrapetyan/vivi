@@ -5,16 +5,23 @@ import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
+  Loader2,
   Mail,
   Phone,
   Play,
+  RefreshCw,
+  Sparkles,
   Star,
   Users,
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
-import { rateCandidate, setCandidateStatus } from "@/app/app/actions";
-import type { CandidateStatus } from "@/lib/db/schema";
+import {
+  rateCandidate,
+  rerunEvaluation,
+  setCandidateStatus,
+} from "@/app/app/actions";
+import type { AiEvaluation, CandidateStatus } from "@/lib/db/schema";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
 import { cn } from "@/lib/utils";
@@ -34,11 +41,14 @@ export type CandidateRow = {
   phone: string | null;
   status: CandidateStatus;
   rating: number | null;
+  aiScore: number | null;
+  aiEvaluation: AiEvaluation | null;
   completedAt: string | null;
   answers: {
     id: string;
     questionId: string;
     durationSec: number | null;
+    transcript: string | null;
   }[];
 };
 
@@ -73,7 +83,7 @@ export function CandidatesReview({
 }) {
   const t = useT();
   const [statusFilter, setStatusFilter] = useState<CandidateStatus | "all">("all");
-  const [sort, setSort] = useState<"newest" | "rating">("newest");
+  const [sort, setSort] = useState<"newest" | "rating" | "ai">("newest");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const visible = useMemo(() => {
@@ -83,6 +93,8 @@ export function CandidatesReview({
     }
     if (sort === "rating") {
       list = [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    } else if (sort === "ai") {
+      list = [...list].sort((a, b) => (b.aiScore ?? -1) - (a.aiScore ?? -1));
     }
     return list;
   }, [candidates, statusFilter, sort]);
@@ -132,12 +144,16 @@ export function CandidatesReview({
             ))}
           </SelectContent>
         </Select>
-        <Select value={sort} onValueChange={(v) => setSort(v as "newest" | "rating")}>
+        <Select
+          value={sort}
+          onValueChange={(v) => setSort(v as "newest" | "rating" | "ai")}
+        >
           <SelectTrigger size="sm" className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="newest">{t.candidates.sortNewest}</SelectItem>
+            <SelectItem value="ai">{t.candidates.sortAi}</SelectItem>
             <SelectItem value="rating">{t.candidates.sortRating}</SelectItem>
           </SelectContent>
         </Select>
@@ -191,6 +207,12 @@ function CandidateListItem({
             <span className="flex items-center gap-1 text-muted-foreground">
               <Video className="size-3" />
               {candidate.answers.length}
+            </span>
+          )}
+          {candidate.aiScore != null && (
+            <span className="flex items-center gap-0.5 text-primary">
+              <Sparkles className="size-3" />
+              {candidate.aiScore}/10
             </span>
           )}
         </div>
@@ -261,6 +283,8 @@ function CandidateDetail({
 
       <Controls candidate={candidate} />
 
+      <AiCard candidate={candidate} />
+
       {playlist.length > 0 && active ? (
         <div className="space-y-3">
           <div>
@@ -281,6 +305,16 @@ function CandidateDetail({
               className="w-full rounded-lg border bg-black"
               src={`/api/media/answer/${active.answer.id}`}
             />
+            {active.answer.transcript && (
+              <details className="mt-2 rounded-lg border bg-card/40 px-3 py-2 text-xs">
+                <summary className="cursor-pointer text-muted-foreground">
+                  {t.candidates.showTranscript}
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap leading-relaxed text-foreground/90">
+                  {active.answer.transcript}
+                </p>
+              </details>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -357,6 +391,87 @@ function Controls({ candidate }: { candidate: CandidateRow }) {
           ))}
         </SelectContent>
       </Select>
+    </div>
+  );
+}
+
+function AiCard({ candidate }: { candidate: CandidateRow }) {
+  const t = useT();
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const data = candidate.aiEvaluation;
+
+  function rerun() {
+    start(async () => {
+      const { ok } = await rerunEvaluation(candidate.id);
+      router.refresh();
+      if (!ok) toast.error(t.candidates.aiUnavailable);
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
+          <Sparkles className="size-4" />
+          {t.candidates.aiTitle}
+          {candidate.aiScore != null && (
+            <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums">
+              {candidate.aiScore}/10
+            </span>
+          )}
+        </div>
+        <button
+          onClick={rerun}
+          disabled={pending}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+        >
+          {pending ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3" />
+          )}
+          {pending ? t.candidates.aiPending : t.candidates.aiRerun}
+        </button>
+      </div>
+
+      {data ? (
+        <div className="space-y-2 text-xs">
+          <p className="leading-relaxed text-foreground/90">{data.summary}</p>
+          {data.strengths.length > 0 && (
+            <div>
+              <p className="font-medium text-emerald-500">
+                {t.candidates.aiStrengths}
+              </p>
+              <ul className="ml-4 list-disc text-foreground/80">
+                {data.strengths.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {data.concerns.length > 0 && (
+            <div>
+              <p className="font-medium text-amber-500">
+                {t.candidates.aiConcerns}
+              </p>
+              <ul className="ml-4 list-disc text-foreground/80">
+                {data.concerns.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-muted-foreground">
+            <span className="font-medium text-foreground/80">
+              {t.candidates.aiRecommendation}:{" "}
+            </span>
+            {data.recommendation}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t.candidates.aiNone}</p>
+      )}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chatMessage, interviewQuestion, vacancy } from "@/lib/db/schema";
+import { chatMessage, company, interviewQuestion, vacancy } from "@/lib/db/schema";
 import { getSession } from "@/lib/session";
 import { getOwnedVacancy } from "@/lib/data";
 import { VACANCY_SYSTEM_PROMPT } from "@/lib/ai";
@@ -40,6 +40,19 @@ export async function POST(
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 
+  // Add company context so generated vacancies reflect the employer.
+  let companyContext = "";
+  if (owned.companyId) {
+    const [c] = await db
+      .select()
+      .from(company)
+      .where(eq(company.id, owned.companyId))
+      .limit(1);
+    if (c?.descriptionMd) {
+      companyContext = `\n\nКонтекст о компании «${c.name}» (используй при составлении вакансии и вопросов, не противоречь этому):\n${c.descriptionMd}`;
+    }
+  }
+
   // Persist the latest user message.
   const last = messages[messages.length - 1];
   if (last?.role === "user") {
@@ -55,7 +68,7 @@ export async function POST(
 
   const result = streamText({
     model: openai(process.env.OPENAI_MODEL ?? "gpt-4o"),
-    system: VACANCY_SYSTEM_PROMPT,
+    system: VACANCY_SYSTEM_PROMPT + companyContext,
     messages: modelMessages,
     stopWhen: stepCountIs(5),
     tools: {

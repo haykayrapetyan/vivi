@@ -15,6 +15,27 @@
       "when": 1780500797431,
       "tag": "0001_numerous_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780655988195,
+      "tag": "0002_closed_wasp",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780662421908,
+      "tag": "0003_cute_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780667870943,
+      "tag": "0004_fluffy_the_fallen",
+      "breakpoints": true
     }
   ]
 }

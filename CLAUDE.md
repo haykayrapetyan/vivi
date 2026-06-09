@@ -10,9 +10,12 @@
 A SaaS for recruiters. A recruiter describes a role in a ChatGPT-style chat; an
 AI (OpenAI) asks clarifying questions and generates the vacancy description +
 tailored video-interview questions. The recruiter publishes the vacancy to get a
-public link; candidates apply and record webcam video answers; the recruiter
-reviews the videos, rates and shortlists candidates. UI copy is in Russian; the
-visual style is minimalist dark, Linear-inspired.
+public link; candidates apply and record webcam video answers; the AI
+transcribes + scores the answers; the recruiter reviews videos/transcripts,
+rates and shortlists candidates. Work is organized into **organizations
+(teams)** — vacancies belong to an org and all members collaborate on them.
+Default UI copy is Russian (RU/EN switch); the visual style is minimalist
+dark, Linear-inspired.
 
 ## Commands
 
@@ -37,27 +40,32 @@ react-markdown · next-themes (light/dark) · cookie-based RU/EN i18n · Vitest.
 ## Environment (`.env.local`, see `.env.example`)
 
 `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `NEXT_PUBLIC_APP_URL`,
-`OPENAI_API_KEY`, `OPENAI_MODEL`, `RESEND_API_KEY`, `EMAIL_FROM`,
-`STORAGE_DRIVER` (`local`|`r2`), `LOCAL_UPLOAD_DIR`. Local Postgres db is `vivi`.
+`OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TRANSCRIBE_MODEL` (default `whisper-1`),
+`RESEND_API_KEY`, `EMAIL_FROM`, and Cloudflare R2 (the only video backend):
+`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`. Local
+Postgres db is `vivi`. Secrets go in `.env.local` (gitignored).
 
 ## Architecture / where things live
 
-- `src/lib/db/schema.ts` — Drizzle schema: better-auth tables (user/session/account/verification) + domain (`vacancy`, `chat_message`, `interview_question`, `candidate`, `interview_answer`).
+- `src/lib/db/schema.ts` — Drizzle schema: better-auth tables (user/session/account/verification + `organization`/`member`/`invitation`) + domain. Hierarchy: **organization → `company` → `vacancy`**. `company` (organizationId, name, website, descriptionMd); `vacancy` (has `organizationId` + `companyId`), `chat_message`, `interview_question`, `candidate` (has `ai_score`/`ai_evaluation`/`ai_evaluated_at`), `interview_answer` (has `transcript`).
 - `src/lib/db/index.ts` — Drizzle client (postgres-js, reused across HMR).
-- `src/lib/data.ts` — read queries (server-only). `src/app/app/actions.ts` + `src/app/v/[slug]/actions.ts` — server actions (writes), each enforcing ownership.
-- `src/lib/auth.ts` / `auth-client.ts` / `session.ts` — better-auth server, React client, and `getSession`/`requireUser` helpers. Auth API at `src/app/api/auth/[...all]/route.ts`.
-- `src/lib/email.ts` — Resend wrapper. `send()` is exported and tested.
-- `src/lib/storage.ts` — video storage abstraction (local disk now; `r2` driver is a TODO). Reads env at call time.
-- `src/lib/ai.ts` — the recruiter chat system prompt.
+- `src/lib/data.ts` — read queries (server-only). `src/app/app/actions.ts` + `src/app/v/[slug]/actions.ts` — server actions (writes). **Access is org-membership based**: `getOwnedVacancy(id, userId)` checks the user is a member of the vacancy's org; same pattern in actions + the media route.
+- `src/lib/auth.ts` / `auth-client.ts` / `session.ts` — better-auth (magic link + **organization plugin**). `requireUser`, `getActiveOrganizationId`, `requireUserAndOrg` helpers. A `databaseHooks` auto-creates a personal org (owner) for every new user and sets the session's active org. Auth API at `src/app/api/auth/[...all]/route.ts`.
+- `src/lib/email.ts` — Resend wrapper. `send()` is exported and tested. Also magic-link, interview-completed, org-invitation templates.
+- `src/lib/storage.ts` — video storage on **Cloudflare R2 only** (S3-compatible via `@aws-sdk/client-s3`; lazy client reading env at call time). `saveVideo`/`readVideo`/`videoSize`/`getReadUrl`; `getReadUrl()` returns a signed GET URL the media route 302-redirects to. `sanitizeKey()` guards object keys.
+- `src/lib/ai.ts` — recruiter chat system prompt. `src/lib/ai-eval.ts` — `transcribeBuffer()` (Whisper) + `evaluateCandidate()` (generateObject → summary/score/strengths/concerns). `src/lib/company-ai.ts` — `generateCompanyDescription()` fetches the company website (http(s) only, blocks private hosts, 12s timeout), strips HTML, summarizes with GPT. All best-effort (no-op without `OPENAI_API_KEY`).
+- `src/app/app/company-actions.ts` — create/update/regenerate/delete company. `createVacancy(companyId)` lives in `actions.ts` and requires a company. The chat route injects the company's `descriptionMd` into the system prompt.
+- `src/components/app/team.tsx` — org switcher + team dialog (members/invite). `src/components/app/company-dialog.tsx` — create/edit company (the form is an inner component so it remounts per open — no setState-in-effect).
 - `src/lib/{slug,format,validation}.ts` — pure helpers (unit-tested).
 
 ### Routes / flow
 
-- `/` landing · `/login` magic-link · `/app` dashboard (sidebar = vacancies).
+- `/` landing · `/login` magic-link · `/app` dashboard. The sidebar groups **vacancies under collapsible company groups** (`sidebar.tsx`); "Add company" + per-company "add vacancy"/settings/delete. `/app` empty state adapts (no companies → add company; else → new vacancy in the first company).
 - `/app/v/[id]` — workspace: left chat (`vacancy-chat.tsx` ↔ `POST /api/vacancy/[id]/chat` streaming with a `save_vacancy` tool), right panel (`vacancy-panel.tsx` with Vacancy/Candidates tabs). The Vacancy tab description and questions are editable inline (`updateVacancyDescription` + `replaceQuestions` actions). `candidates-review.tsx` is a list → detail view: filter by status + sort, and a single video player with a question playlist (click/autoplay-next) instead of stacked players. On <lg the panel is in a Sheet (`vacancy-panel-sheet.tsx`).
-- `/v/[slug]` — public vacancy + apply form → `applyToVacancy` creates a candidate, redirects to the interview.
-- `/interview/[token]` — candidate records webcam answers (`interview-client.tsx`, MediaRecorder) → `POST /api/interview/[token]/answer` (upload) and `.../complete` (mark done + email recruiter).
-- `GET /api/media/answer/[id]` — recruiter-only video streaming (ownership-checked, supports Range).
+- `/v/[slug]` — public vacancy (shows company name + an "About the company" section from the company's `descriptionMd`) + apply form → `applyToVacancy` creates a candidate, redirects to the interview.
+- `/interview/[token]` — candidate records webcam answers (`interview-client.tsx`, MediaRecorder; client retries upload on transient failure). `POST /api/interview/[token]/answer` saves + transcribes the clip; `.../complete` marks done, emails the recruiter, and runs the AI evaluation.
+- `/accept-invitation/[id]` — invited user accepts an org invitation (must be logged in).
+- `GET /api/media/answer/[id]` — org-member-only; 302-redirects to a short-lived signed R2 URL.
 
 ## Testing
 
@@ -71,4 +79,6 @@ react-markdown · next-themes (light/dark) · cookie-based RU/EN i18n · Vitest.
 - **Resend sandbox**: with the `onboarding@resend.dev` sender, Resend only delivers to the account owner (`h@ai9.am`); other recipients 403. In dev, `email.ts` logs the link to the server console and does not throw, so login works with any email. For real delivery, verify a domain and set `EMAIL_FROM`.
 - **Radix triggers** (Tabs, DropdownMenu) activate on `mousedown`/pointer events, not `click` — relevant when scripting the browser in tests/preview.
 - Don't nest interactive elements: a `<button>` inside a `<button>` breaks hydration and silently kills page interactivity (was the candidate card + star rating bug).
-- Video is on local disk under `/uploads` (gitignored), served only through the auth-checked media route — never from `public/`.
+- Video lives in **Cloudflare R2** and is served only via a signed URL through the org-checked media route. The `R2_*` env vars are required for any video feature (record/play/transcribe); without them those routes throw. There is no local-disk fallback.
+- **Organizations**: every user gets a personal org on first login (via `databaseHooks.user.create.after`); existing rows were backfilled by SQL. `vacancy.organizationId` is nullable in the schema (for migration) but always set in practice — access checks treat a null-org vacancy as inaccessible.
+- **AI eval / transcription** is best-effort and silently skipped without `OPENAI_API_KEY`; transcripts are stored per answer at upload, the candidate-level evaluation runs at completion and can be re-run from the candidate detail (`rerunEvaluation`).

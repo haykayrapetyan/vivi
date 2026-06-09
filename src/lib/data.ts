@@ -4,27 +4,76 @@ import { db } from "@/lib/db";
 import {
   candidate,
   chatMessage,
+  company,
   interviewAnswer,
   interviewQuestion,
+  member,
+  organization,
   vacancy,
 } from "@/lib/db/schema";
 
-export async function listVacancies(userId: string) {
+export async function listCompanies(organizationId: string) {
+  return db
+    .select()
+    .from(company)
+    .where(eq(company.organizationId, organizationId))
+    .orderBy(asc(company.createdAt));
+}
+
+/** Loads a company and enforces org membership. */
+export async function getOwnedCompany(id: string, userId: string) {
+  const [c] = await db.select().from(company).where(eq(company.id, id)).limit(1);
+  if (!c) return null;
+  const [m] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(eq(member.organizationId, c.organizationId), eq(member.userId, userId)),
+    )
+    .limit(1);
+  return m ? c : null;
+}
+
+export async function getUserOrganizations(userId: string) {
+  return db
+    .select({
+      id: organization.id,
+      name: organization.name,
+      slug: organization.slug,
+      role: member.role,
+    })
+    .from(member)
+    .innerJoin(organization, eq(member.organizationId, organization.id))
+    .where(eq(member.userId, userId))
+    .orderBy(asc(organization.createdAt));
+}
+
+export async function listVacancies(organizationId: string) {
   return db
     .select()
     .from(vacancy)
-    .where(eq(vacancy.userId, userId))
+    .where(eq(vacancy.organizationId, organizationId))
     .orderBy(desc(vacancy.updatedAt));
 }
 
-/** Loads a vacancy and enforces ownership. Returns null if not found/owned. */
+/**
+ * Loads a vacancy and enforces access: the user must be a member of the
+ * vacancy's organization. Returns null otherwise.
+ */
 export async function getOwnedVacancy(id: string, userId: string) {
-  const [v] = await db
-    .select()
-    .from(vacancy)
-    .where(and(eq(vacancy.id, id), eq(vacancy.userId, userId)))
+  const [v] = await db.select().from(vacancy).where(eq(vacancy.id, id)).limit(1);
+  if (!v?.organizationId) return null;
+  const [m] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(
+        eq(member.organizationId, v.organizationId),
+        eq(member.userId, userId),
+      ),
+    )
     .limit(1);
-  return v ?? null;
+  return m ? v : null;
 }
 
 export async function getVacancyMessages(vacancyId: string) {
@@ -67,12 +116,18 @@ export async function getAnswersByVacancy(vacancyId: string) {
       candidateId: interviewAnswer.candidateId,
       questionId: interviewAnswer.questionId,
       durationSec: interviewAnswer.durationSec,
+      transcript: interviewAnswer.transcript,
       createdAt: interviewAnswer.createdAt,
     })
     .from(interviewAnswer)
     .innerJoin(candidate, eq(interviewAnswer.candidateId, candidate.id))
     .where(eq(candidate.vacancyId, vacancyId))
     .orderBy(asc(interviewAnswer.createdAt));
+}
+
+export async function getCompanyById(id: string) {
+  const [c] = await db.select().from(company).where(eq(company.id, id)).limit(1);
+  return c ?? null;
 }
 
 /** Public: fetch a published vacancy by its slug. */

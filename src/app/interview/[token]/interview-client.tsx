@@ -149,6 +149,29 @@ export function InterviewClient({
     setPhase("question");
   }
 
+  async function uploadWithRetry(fd: FormData, attempts = 3) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const res = await fetch(`/api/interview/${token}/answer`, {
+          method: "POST",
+          body: fd,
+        });
+        if (res.ok) return;
+        // Client errors won't succeed on retry — fail fast.
+        if (res.status >= 400 && res.status < 500) {
+          throw new Error(`client_${res.status}`);
+        }
+        throw new Error(`server_${res.status}`);
+      } catch (e) {
+        const isClient =
+          e instanceof Error && e.message.startsWith("client_");
+        if (isClient || attempt === attempts) throw e;
+        // Backoff before retrying transient (network/5xx) failures.
+        await new Promise((r) => setTimeout(r, attempt * 1200));
+      }
+    }
+  }
+
   async function submit() {
     const blob = blobRef.current;
     if (!blob) return;
@@ -160,11 +183,7 @@ export function InterviewClient({
       fd.append("questionId", questions[index].id);
       fd.append("durationSec", String(durationRef.current));
       fd.append("video", blob, `answer.${ext}`);
-      const res = await fetch(`/api/interview/${token}/answer`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) throw new Error();
+      await uploadWithRetry(fd);
 
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
       setRecordedUrl(null);

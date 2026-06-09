@@ -43,6 +43,7 @@ export default async function VacancyPage({
       id: a.id,
       questionId: a.questionId,
       durationSec: a.durationSec,
+      transcript: a.transcript,
     });
     answersByCandidate.set(a.candidateId, list);
   }
@@ -54,6 +55,8 @@ export default async function VacancyPage({
     phone: c.phone,
     status: c.status,
     rating: c.rating,
+    aiScore: c.aiScore,
+    aiEvaluation: c.aiEvaluation,
     completedAt: c.completedAt?.toISOString() ?? null,
     answers: answersByCandidate.get(c.id) ?? [],
   }));

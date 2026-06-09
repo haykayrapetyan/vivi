@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Briefcase, MapPin, Video } from "lucide-react";
-import { getPublicVacancy, getVacancyQuestions } from "@/lib/data";
+import {
+  getCompanyById,
+  getPublicVacancy,
+  getVacancyQuestions,
+} from "@/lib/data";
 import { getLocale, getServerDictionary } from "@/lib/i18n/server";
 import { interpolate } from "@/lib/i18n/dictionaries";
 import { pluralRu } from "@/lib/format";
@@ -43,6 +47,11 @@ export default async function PublicVacancyPage({
     getLocale(),
   ]);
 
+  const companyRow = vacancy.companyId
+    ? await getCompanyById(vacancy.companyId)
+    : null;
+  const companyName = companyRow?.name ?? vacancy.details?.company ?? null;
+
   const d = vacancy.details;
   const chips = [d?.location, d?.employmentType, d?.seniority, d?.salaryRange].filter(
     Boolean,
@@ -80,10 +89,10 @@ export default async function PublicVacancyPage({
 
       <main className="mx-auto grid w-full max-w-5xl gap-10 px-6 pb-24 lg:grid-cols-[minmax(0,1fr)_360px]">
         <article className="min-w-0">
-          {d?.company && (
+          {companyName && (
             <div className="mb-2 flex items-center gap-1.5 text-sm text-muted-foreground">
               <Briefcase className="size-3.5" />
-              {d.company}
+              {companyName}
             </div>
           )}
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -123,6 +132,18 @@ export default async function PublicVacancyPage({
                   </Badge>
                 ))}
               </div>
+            </div>
+          )}
+
+          {companyRow?.descriptionMd && (
+            <div className="mt-7 border-t pt-7">
+              <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t.company.aboutTitle}
+                {companyName ? ` · ${companyName}` : ""}
+              </h2>
+              <Markdown className="text-[15px] leading-7">
+                {companyRow.descriptionMd}
+              </Markdown>
             </div>
           )}
         </article>

@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { candidate, user, vacancy } from "@/lib/db/schema";
 import { getCandidateByToken } from "@/lib/data";
 import { sendInterviewCompletedEmail } from "@/lib/email";
+import { evaluateCandidate } from "@/lib/ai-eval";
+
+export const maxDuration = 120;
 
 export async function POST(
   _req: Request,
@@ -19,6 +22,13 @@ export async function POST(
     .update(candidate)
     .set({ status: "completed", completedAt: new Date() })
     .where(eq(candidate.id, cand.id));
+
+  // Generate the AI evaluation from the answer transcripts (best-effort).
+  try {
+    await evaluateCandidate(cand.id);
+  } catch (e) {
+    console.error("[complete] evaluation failed:", e);
+  }
 
   // Notify the recruiter (best-effort).
   try {

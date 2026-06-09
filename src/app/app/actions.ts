@@ -7,12 +7,14 @@ import { db } from "@/lib/db";
 import {
   candidate,
   interviewQuestion,
+  member,
   vacancy,
   type CandidateStatus,
 } from "@/lib/db/schema";
-import { requireUser } from "@/lib/session";
-import { getOwnedVacancy, getVacancyQuestions } from "@/lib/data";
+import { requireUser, requireUserAndOrg } from "@/lib/session";
+import { getOwnedCompany, getOwnedVacancy, getVacancyQuestions } from "@/lib/data";
 import { buildPublicSlug } from "@/lib/slug";
+import { evaluateCandidate } from "@/lib/ai-eval";
 
 /** Ensures the current user owns the vacancy the candidate belongs to. */
 async function requireOwnedCandidate(candidateId: string) {
@@ -21,7 +23,8 @@ async function requireOwnedCandidate(candidateId: string) {
     .select({ candidateId: candidate.id, vacancyId: candidate.vacancyId })
     .from(candidate)
     .innerJoin(vacancy, eq(candidate.vacancyId, vacancy.id))
-    .where(and(eq(candidate.id, candidateId), eq(vacancy.userId, user.id)))
+    .innerJoin(member, eq(member.organizationId, vacancy.organizationId))
+    .where(and(eq(candidate.id, candidateId), eq(member.userId, user.id)))
     .limit(1);
   if (!row) throw new Error("Кандидат не найден");
   return row;
@@ -49,11 +52,20 @@ export async function setCandidateStatus(
   revalidatePath(`/app/v/${vacancyId}`);
 }
 
-export async function createVacancy() {
-  const user = await requireUser();
+export async function rerunEvaluation(candidateId: string) {
+  const { vacancyId } = await requireOwnedCandidate(candidateId);
+  const ok = await evaluateCandidate(candidateId);
+  revalidatePath(`/app/v/${vacancyId}`);
+  return { ok };
+}
+
+export async function createVacancy(companyId: string) {
+  const { user, organizationId } = await requireUserAndOrg();
+  const owned = await getOwnedCompany(companyId, user.id);
+  if (!owned) throw new Error("Компания не найдена");
   const [v] = await db
     .insert(vacancy)
-    .values({ userId: user.id })
+    .values({ userId: user.id, organizationId, companyId })
     .returning({ id: vacancy.id });
   revalidatePath("/app");
   redirect(`/app/v/${v.id}`);

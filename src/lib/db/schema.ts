@@ -40,6 +40,7 @@ export const session = pgTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  activeOrganizationId: text("active_organization_id"),
 });
 
 export const account = pgTable("account", {
@@ -69,7 +70,60 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/* --------------------- better-auth: organizations ---------------------- */
+
+export const organization = pgTable("organization", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").unique(),
+  logo: text("logo"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const member = pgTable("member", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const invitation = pgTable("invitation", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  role: text("role"),
+  status: text("status").notNull().default("pending"),
+  inviterId: text("inviter_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 /* ------------------------------- domain -------------------------------- */
+
+export const company = pgTable("company", {
+  id: id(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  website: text("website"),
+  descriptionMd: text("description_md"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
 
 export type VacancyStatus = "draft" | "published" | "closed";
 
@@ -89,6 +143,12 @@ export const vacancy = pgTable("vacancy", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id").references(() => organization.id, {
+    onDelete: "cascade",
+  }),
+  companyId: text("company_id").references(() => company.id, {
+    onDelete: "cascade",
+  }),
   title: text("title").notNull().default("Новая вакансия"),
   status: text("status").$type<VacancyStatus>().notNull().default("draft"),
   descriptionMd: text("description_md"),
@@ -130,6 +190,13 @@ export type CandidateStatus =
   | "shortlisted"
   | "rejected";
 
+export type AiEvaluation = {
+  summary: string;
+  strengths: string[];
+  concerns: string[];
+  recommendation: string;
+};
+
 export const candidate = pgTable("candidate", {
   id: id(),
   vacancyId: text("vacancy_id")
@@ -141,6 +208,9 @@ export const candidate = pgTable("candidate", {
   status: text("status").$type<CandidateStatus>().notNull().default("applied"),
   rating: integer("rating"),
   notes: text("notes"),
+  aiScore: integer("ai_score"),
+  aiEvaluation: jsonb("ai_evaluation").$type<AiEvaluation>(),
+  aiEvaluatedAt: timestamp("ai_evaluated_at"),
   // token used by the candidate to access their interview page
   publicToken: text("public_token")
     .notNull()
@@ -175,8 +245,16 @@ export const userRelations = relations(user, ({ many }) => ({
   vacancies: many(vacancy),
 }));
 
+export const companyRelations = relations(company, ({ many }) => ({
+  vacancies: many(vacancy),
+}));
+
 export const vacancyRelations = relations(vacancy, ({ one, many }) => ({
   owner: one(user, { fields: [vacancy.userId], references: [user.id] }),
+  company: one(company, {
+    fields: [vacancy.companyId],
+    references: [company.id],
+  }),
   messages: many(chatMessage),
   questions: many(interviewQuestion),
   candidates: many(candidate),
@@ -222,6 +300,7 @@ export const interviewAnswerRelations = relations(interviewAnswer, ({ one }) => 
 /* ------------------------------- types --------------------------------- */
 
 export type User = typeof user.$inferSelect;
+export type Company = typeof company.$inferSelect;
 export type Vacancy = typeof vacancy.$inferSelect;
 export type ChatMessage = typeof chatMessage.$inferSelect;
 export type InterviewQuestion = typeof interviewQuestion.$inferSelect;
