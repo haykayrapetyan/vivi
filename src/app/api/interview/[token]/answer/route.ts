@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { candidate, interviewAnswer, interviewQuestion } from "@/lib/db/schema";
-import { getCandidateByToken } from "@/lib/data";
+import { getCandidateByToken, getVacancyById } from "@/lib/data";
+import { isAcceptingCandidates } from "@/lib/vacancy-lifecycle";
 import { saveVideo } from "@/lib/storage";
 import { transcribeBuffer } from "@/lib/ai-eval";
 
@@ -18,6 +19,14 @@ export async function POST(
   const cand = await getCandidateByToken(token);
   if (!cand) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const vac = await getVacancyById(cand.vacancyId);
+  if (!vac || !isAcceptingCandidates(vac.status)) {
+    return NextResponse.json(
+      { error: "This vacancy is no longer accepting interviews" },
+      { status: 410 },
+    );
   }
 
   const form = await req.formData();

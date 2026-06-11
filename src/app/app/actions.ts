@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -10,11 +11,19 @@ import {
   member,
   vacancy,
   type CandidateStatus,
+  type VacancyStatus,
 } from "@/lib/db/schema";
+import { canTransition } from "@/lib/vacancy-lifecycle";
 import { requireUser, requireUserAndOrg } from "@/lib/session";
-import { getOwnedCompany, getOwnedVacancy, getVacancyQuestions } from "@/lib/data";
+import {
+  getOwnedGroup,
+  getOwnedVacancy,
+  getVacancyQuestions,
+} from "@/lib/data";
 import { buildPublicSlug } from "@/lib/slug";
 import { evaluateCandidate } from "@/lib/ai-eval";
+import { dispatchAgentEvent } from "@/lib/agent/dispatch";
+import { MAX_DRAFT_LEN } from "@/lib/draft";
 
 /** Ensures the current user owns the vacancy the candidate belongs to. */
 async function requireOwnedCandidate(candidateId: string) {
@@ -26,7 +35,7 @@ async function requireOwnedCandidate(candidateId: string) {
     .innerJoin(member, eq(member.organizationId, vacancy.organizationId))
     .where(and(eq(candidate.id, candidateId), eq(member.userId, user.id)))
     .limit(1);
-  if (!row) throw new Error("Кандидат не найден");
+  if (!row) throw new Error("Candidate not found");
   return row;
 }
 
@@ -59,13 +68,37 @@ export async function rerunEvaluation(candidateId: string) {
   return { ok };
 }
 
-export async function createVacancy(companyId: string) {
+
+/**
+ * Starts a vacancy straight from a free-text prompt (landing-page composer).
+ * Picks the org's first company, creating a default one for brand-new users,
+ * then hands the prompt to the chat via a query param so the AI begins at once.
+ */
+export async function startVacancyFromPrompt(prompt: string) {
   const { user, organizationId } = await requireUserAndOrg();
-  const owned = await getOwnedCompany(companyId, user.id);
-  if (!owned) throw new Error("Компания не найдена");
+  const text = prompt.trim().slice(0, MAX_DRAFT_LEN);
+
   const [v] = await db
     .insert(vacancy)
-    .values({ userId: user.id, organizationId, companyId })
+    .values({ userId: user.id, organizationId })
+    .returning({ id: vacancy.id });
+
+  revalidatePath("/app");
+  const query = text ? `?prompt=${encodeURIComponent(text)}` : "";
+  redirect(`/app/v/${v.id}${query}`);
+}
+
+export async function createVacancy(groupId?: string | null) {
+  const { user, organizationId } = await requireUserAndOrg();
+  let gid: string | null = null;
+  if (groupId) {
+    const owned = await getOwnedGroup(groupId, user.id);
+    if (!owned) throw new Error("Group not found");
+    gid = groupId;
+  }
+  const [v] = await db
+    .insert(vacancy)
+    .values({ userId: user.id, organizationId, groupId: gid })
     .returning({ id: vacancy.id });
   revalidatePath("/app");
   redirect(`/app/v/${v.id}`);
@@ -74,8 +107,8 @@ export async function createVacancy(companyId: string) {
 export async function renameVacancy(id: string, title: string) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
-  const next = title.trim().slice(0, 120) || "Новая вакансия";
+  if (!owned) throw new Error("Vacancy not found");
+  const next = title.trim().slice(0, 120) || "New vacancy";
   await db.update(vacancy).set({ title: next }).where(eq(vacancy.id, id));
   revalidatePath("/app");
   revalidatePath(`/app/v/${id}`);
@@ -84,25 +117,62 @@ export async function renameVacancy(id: string, title: string) {
 export async function deleteVacancy(id: string) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
+  if (!owned) throw new Error("Vacancy not found");
   await db.delete(vacancy).where(eq(vacancy.id, id));
   revalidatePath("/app");
   redirect("/app");
 }
 
+/** Moves a vacancy into a group (or out of any group when groupId is null).
+ * The target group must belong to the same company as the vacancy. */
+export async function moveVacancyToGroup(id: string, groupId: string | null) {
+  const user = await requireUser();
+  const owned = await getOwnedVacancy(id, user.id);
+  if (!owned) throw new Error("Vacancy not found");
+  let gid: string | null = null;
+  if (groupId) {
+    const group = await getOwnedGroup(groupId, user.id);
+    if (!group || group.organizationId !== owned.organizationId) {
+      throw new Error("Group not found");
+    }
+    gid = groupId;
+  }
+  await db.update(vacancy).set({ groupId: gid }).where(eq(vacancy.id, id));
+  revalidatePath("/app");
+}
+
+/** Reassigns the vacancy's responsible user. The new owner must be a member of
+ * the vacancy's company. */
+export async function setVacancyOwner(id: string, ownerId: string) {
+  const user = await requireUser();
+  const owned = await getOwnedVacancy(id, user.id);
+  if (!owned?.organizationId) throw new Error("Vacancy not found");
+  const [m] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(
+        eq(member.organizationId, owned.organizationId),
+        eq(member.userId, ownerId),
+      ),
+    )
+    .limit(1);
+  if (!m) throw new Error("That user isn't a member of this company");
+  await db.update(vacancy).set({ userId: ownerId }).where(eq(vacancy.id, id));
+  revalidatePath(`/app/v/${id}`);
+}
+
 export async function publishVacancy(id: string) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
+  if (!owned) throw new Error("Vacancy not found");
 
   if (!owned.descriptionMd) {
-    throw new Error(
-      "Сначала завершите описание вакансии в чате с AI.",
-    );
+    throw new Error("Finish the vacancy description in the AI chat first.");
   }
   const questions = await getVacancyQuestions(id);
   if (questions.length === 0) {
-    throw new Error("Нужен хотя бы один вопрос для видеоинтервью.");
+    throw new Error("You need at least one video-interview question.");
   }
 
   const slug = owned.publicSlug ?? buildPublicSlug(owned.title);
@@ -113,28 +183,56 @@ export async function publishVacancy(id: string) {
 
   revalidatePath("/app");
   revalidatePath(`/app/v/${id}`);
+
+  // Wake the vacancy's agent: it introduces itself in the chat (once) and
+  // schedules its own periodic pool reviews. Best-effort — publishing never
+  // fails over the agent.
+  after(async () => {
+    try {
+      await dispatchAgentEvent({ type: "published", vacancyId: id });
+    } catch (e) {
+      console.error("[publish] agent kickoff dispatch failed:", e);
+    }
+  });
+
   return { slug };
 }
 
 export async function unpublishVacancy(id: string) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
+  if (!owned) throw new Error("Vacancy not found");
   await db.update(vacancy).set({ status: "draft" }).where(eq(vacancy.id, id));
   revalidatePath("/app");
   revalidatePath(`/app/v/${id}`);
 }
 
-export async function setVacancyClosed(id: string, closed: boolean) {
+/**
+ * Moves a vacancy through its lifecycle (close / reopen / archive / restore).
+ * Closed and archived vacancies stop accepting candidates and the agent goes
+ * dormant. Publishing a draft still goes through publishVacancy.
+ */
+export async function setVacancyStatus(id: string, status: VacancyStatus) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
-  await db
-    .update(vacancy)
-    .set({ status: closed ? "closed" : "published" })
-    .where(eq(vacancy.id, id));
+  if (!owned) throw new Error("Vacancy not found");
+  if (!canTransition(owned.status, status)) {
+    throw new Error(`Cannot move a ${owned.status} vacancy to ${status}`);
+  }
+  await db.update(vacancy).set({ status }).where(eq(vacancy.id, id));
   revalidatePath("/app");
   revalidatePath(`/app/v/${id}`);
+
+  // Reopening makes the agent live again — ping it so its schedule resumes.
+  if (status === "published") {
+    after(async () => {
+      try {
+        await dispatchAgentEvent({ type: "published", vacancyId: id });
+      } catch (e) {
+        console.error("[reopen] agent dispatch failed:", e);
+      }
+    });
+  }
 }
 
 export async function updateVacancyDescription(
@@ -143,7 +241,7 @@ export async function updateVacancyDescription(
 ) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
+  if (!owned) throw new Error("Vacancy not found");
   await db
     .update(vacancy)
     .set({ descriptionMd: descriptionMd.trim() || null })
@@ -155,7 +253,7 @@ export async function updateVacancyDescription(
 export async function replaceQuestions(id: string, questions: string[]) {
   const user = await requireUser();
   const owned = await getOwnedVacancy(id, user.id);
-  if (!owned) throw new Error("Вакансия не найдена");
+  if (!owned) throw new Error("Vacancy not found");
   await db.delete(interviewQuestion).where(eq(interviewQuestion.vacancyId, id));
   if (questions.length) {
     await db.insert(interviewQuestion).values(

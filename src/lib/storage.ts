@@ -37,10 +37,11 @@ async function r2() {
 
 /* ------------------------------- public -------------------------------- */
 
-export async function saveVideo(
+/** Generic R2 object write (videos, logos, …). */
+export async function saveObject(
   key: string,
   data: Buffer,
-  contentType = "video/webm",
+  contentType: string,
 ): Promise<string> {
   const { mod, client, bucket } = await r2();
   await client.send(
@@ -52,6 +53,14 @@ export async function saveVideo(
     }),
   );
   return key;
+}
+
+export async function saveVideo(
+  key: string,
+  data: Buffer,
+  contentType = "video/webm",
+): Promise<string> {
+  return saveObject(key, data, contentType);
 }
 
 export async function readVideo(key: string): Promise<Buffer> {

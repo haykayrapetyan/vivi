@@ -3,16 +3,15 @@ import {
   convertToModelMessages,
   stepCountIs,
   streamText,
-  tool,
   type UIMessage,
 } from "ai";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { chatMessage, company, interviewQuestion, vacancy } from "@/lib/db/schema";
+import { chatMessage } from "@/lib/db/schema";
 import { getSession } from "@/lib/session";
-import { getOwnedVacancy } from "@/lib/data";
-import { VACANCY_SYSTEM_PROMPT } from "@/lib/ai";
+import { getOrganization, getOwnedVacancy } from "@/lib/data";
+import { buildAgentSystemPrompt } from "@/lib/agent/prompt";
+import { buildVacancyTools } from "@/lib/agent/tools";
+import { ensureVacancyAgent } from "@/lib/agent/store";
 
 export const maxDuration = 60;
 
@@ -40,27 +39,25 @@ export async function POST(
 
   const { messages }: { messages: UIMessage[] } = await req.json();
 
-  // Add company context so generated vacancies reflect the employer.
-  let companyContext = "";
-  if (owned.companyId) {
-    const [c] = await db
-      .select()
-      .from(company)
-      .where(eq(company.id, owned.companyId))
-      .limit(1);
-    if (c?.descriptionMd) {
-      companyContext = `\n\nКонтекст о компании «${c.name}» (используй при составлении вакансии и вопросов, не противоречь этому):\n${c.descriptionMd}`;
-    }
-  }
+  // The same agent that runs autonomously: shared persona, tools and
+  // standing instructions.
+  const [org, agent] = await Promise.all([
+    owned.organizationId ? getOrganization(owned.organizationId) : null,
+    ensureVacancyAgent(id),
+  ]);
 
-  // Persist the latest user message.
+  // Persist the latest user message (with the author, the chat is org-shared).
   const last = messages[messages.length - 1];
   if (last?.role === "user") {
     const content = textOf(last);
     if (content) {
-      await db
-        .insert(chatMessage)
-        .values({ vacancyId: id, role: "user", content });
+      await db.insert(chatMessage).values({
+        vacancyId: id,
+        role: "user",
+        content,
+        source: "chat",
+        userId: session.user.id,
+      });
     }
   }
 
@@ -68,67 +65,22 @@ export async function POST(
 
   const result = streamText({
     model: openai(process.env.OPENAI_MODEL ?? "gpt-4o"),
-    system: VACANCY_SYSTEM_PROMPT + companyContext,
+    system: buildAgentSystemPrompt({
+      vacancyTitle: owned.title,
+      vacancyStatus: owned.status,
+      companyName: org?.name,
+      companyDescriptionMd: org?.descriptionMd,
+      instructions: agent.instructions,
+    }),
     messages: modelMessages,
-    stopWhen: stepCountIs(5),
-    tools: {
-      save_vacancy: tool({
-        description:
-          "Сохраняет/обновляет черновик вакансии: заголовок, описание в Markdown и вопросы для видеоинтервью.",
-        inputSchema: z.object({
-          title: z.string().describe("Короткий заголовок вакансии (должность)"),
-          descriptionMd: z
-            .string()
-            .describe("Полное описание вакансии в формате Markdown"),
-          details: z
-            .object({
-              company: z.string().optional(),
-              location: z.string().optional(),
-              employmentType: z.string().optional(),
-              seniority: z.string().optional(),
-              salaryRange: z.string().optional(),
-              skills: z.array(z.string()).optional(),
-            })
-            .optional(),
-          interviewQuestions: z
-            .array(z.string())
-            .min(3)
-            .max(8)
-            .describe("Открытые вопросы для видеоинтервью кандидата"),
-        }),
-        execute: async ({ title, descriptionMd, details, interviewQuestions }) => {
-          await db
-            .update(vacancy)
-            .set({
-              title: title?.trim() || owned.title,
-              descriptionMd,
-              details: details ?? owned.details ?? undefined,
-            })
-            .where(eq(vacancy.id, id));
-
-          await db
-            .delete(interviewQuestion)
-            .where(eq(interviewQuestion.vacancyId, id));
-          await db.insert(interviewQuestion).values(
-            interviewQuestions
-              .map((t) => t.trim())
-              .filter(Boolean)
-              .map((text, i) => ({ vacancyId: id, text, orderIndex: i })),
-          );
-
-          return {
-            ok: true,
-            savedQuestions: interviewQuestions.length,
-          };
-        },
-      }),
-    },
+    stopWhen: stepCountIs(8),
+    tools: buildVacancyTools(owned),
     onFinish: async ({ text }) => {
       const content = text?.trim();
       if (content) {
         await db
           .insert(chatMessage)
-          .values({ vacancyId: id, role: "assistant", content });
+          .values({ vacancyId: id, role: "assistant", content, source: "chat" });
       }
     },
   });

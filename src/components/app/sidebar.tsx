@@ -1,28 +1,46 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Building2,
   ChevronRight,
+  FolderPlus,
   Loader2,
   LogOut,
+  Menu,
+  Moon,
   MoreHorizontal,
   Pencil,
   Plus,
-  Settings2,
+  Settings,
+  Sun,
   Trash2,
+  UserPlus,
 } from "lucide-react";
+import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
-import { createVacancy, deleteVacancy, renameVacancy } from "@/app/app/actions";
-import { deleteCompany } from "@/app/app/company-actions";
+import {
+  createVacancy,
+  deleteVacancy,
+  moveVacancyToGroup,
+  renameVacancy,
+} from "@/app/app/actions";
+import { deleteGroup } from "@/app/app/group-actions";
 import type { VacancyStatus } from "@/lib/db/schema";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,104 +55,285 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { LanguageSwitcher } from "@/components/language-switcher";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useTheme } from "@/components/providers";
 import { OrgSwitcher } from "@/components/app/team";
-import { CompanyDialog } from "@/components/app/company-dialog";
+import { GroupDialog } from "@/components/app/group-dialog";
+import { UserAvatar } from "@/components/app/user-avatar";
+import type { CompanyProfile } from "@/components/app/company-form";
 
 type VacancyItem = { id: string; title: string; status: VacancyStatus };
-type CompanyItem = {
-  id: string;
-  name: string;
-  website: string | null;
-  descriptionMd: string | null;
-  vacancies: VacancyItem[];
-};
+type GroupItem = { id: string; name: string; vacancies: VacancyItem[] };
+type GroupOption = { id: string; name: string };
+
+// Drag-and-drop: a vacancy id travels in the dataTransfer under this type.
+const VACANCY_MIME = "application/x-vivi-vacancy";
+
+/** A drop target for a dragged vacancy. Highlights while a vacancy hovers over
+ * it and calls onDropVacancy(id) on drop. */
+function DropZone({
+  onDropVacancy,
+  disabled,
+  className,
+  activeClassName,
+  children,
+}: {
+  onDropVacancy: (vacancyId: string) => void;
+  disabled?: boolean;
+  className?: string;
+  activeClassName?: string;
+  children?: React.ReactNode;
+}) {
+  const [over, setOver] = useState(false);
+
+  return (
+    <div
+      onDragOver={(e) => {
+        if (disabled) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!over) setOver(true);
+      }}
+      onDragLeave={(e) => {
+        // Ignore moves between child elements inside the zone.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setOver(false);
+      }}
+      onDrop={(e) => {
+        if (disabled) return;
+        e.preventDefault();
+        setOver(false);
+        const id =
+          e.dataTransfer.getData(VACANCY_MIME) ||
+          e.dataTransfer.getData("text/plain");
+        if (id) onDropVacancy(id);
+      }}
+      className={cn(className, over && activeClassName)}
+    >
+      {children}
+    </div>
+  );
+}
 
 const statusDot: Record<VacancyStatus, string> = {
   draft: "bg-muted-foreground/40",
   published: "bg-emerald-500",
   closed: "bg-amber-500",
+  archived: "bg-muted-foreground/20",
 };
 
-export function AppSidebar({
-  user,
-  organizations,
-  activeOrganizationId,
-  companies,
-}: {
+type SidebarProps = {
   user: { name: string; email: string; image: string | null };
   organizations: { id: string; name: string; role: string }[];
   activeOrganizationId: string;
-  companies: CompanyItem[];
-}) {
+  activeCompany: CompanyProfile;
+  groups: GroupItem[];
+  ungrouped: VacancyItem[];
+};
+
+function SidebarBody({
+  user,
+  organizations,
+  activeOrganizationId,
+  activeCompany,
+  groups,
+  ungrouped,
+}: SidebarProps) {
   const t = useT();
-  const [addOpen, setAddOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [creating, startCreate] = useTransition();
+  const [, startMove] = useTransition();
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const empty = groups.length === 0 && ungrouped.length === 0;
+  const groupOptions: GroupOption[] = groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+  }));
+
+  function move(vacancyId: string, groupId: string | null) {
+    setDragging(false);
+    startMove(async () => {
+      try {
+        await moveVacancyToGroup(vacancyId, groupId);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t.panel.saveError);
+      }
+    });
+  }
 
   return (
-    <aside className="flex h-full w-[272px] shrink-0 flex-col border-r bg-sidebar">
-      <div className="flex items-center justify-between px-4 py-4">
-        <Link href="/" className="text-base font-semibold tracking-tight">
-          Vivi
-        </Link>
-        <div className="flex items-center">
-          <LanguageSwitcher />
-          <ThemeToggle />
-        </div>
-      </div>
-
-      <div className="px-3 pb-2">
+    <>
+      <div className="px-3 pt-3 pb-2">
         <OrgSwitcher
           organizations={organizations}
           activeOrganizationId={activeOrganizationId}
+          activeCompany={activeCompany}
         />
       </div>
 
-      <div className="px-3">
+      <div className="flex gap-2 px-3">
         <Button
-          variant="outline"
           size="sm"
-          className="w-full justify-start gap-2"
-          onClick={() => setAddOpen(true)}
+          className="flex-1 justify-start gap-2"
+          disabled={creating}
+          onClick={() => startCreate(() => createVacancy())}
         >
-          <Plus className="size-4" />
-          {t.company.add}
+          {creating ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Plus className="size-4" />
+          )}
+          {t.sidebar.newVacancy}
+        </Button>
+        <Button
+          size="icon"
+          variant="outline"
+          className="size-8 shrink-0"
+          title={t.group.add}
+          aria-label={t.group.add}
+          onClick={() => setAddGroupOpen(true)}
+        >
+          <FolderPlus className="size-4" />
         </Button>
       </div>
 
-      <ScrollArea className="mt-3 flex-1 px-2">
-        <div className="space-y-1 pb-3">
-          {companies.length === 0 ? (
-            <div className="px-3 py-8 text-center">
-              <p className="text-sm font-medium">{t.company.noCompanies}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t.company.firstHint}
-              </p>
-            </div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2">
+        <div className="space-y-0.5 pb-3">
+          {empty ? (
+            <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+              {t.sidebar.noVacancies}
+            </p>
           ) : (
-            companies.map((c) => <CompanyGroup key={c.id} company={c} />)
+            <>
+              <DropZone
+                onDropVacancy={(id) => move(id, null)}
+                disabled={!dragging}
+                className="space-y-0.5 rounded-lg"
+                activeClassName="ring-2 ring-primary/40"
+              >
+                {ungrouped.map((v) => (
+                  <VacancyRow
+                    key={v.id}
+                    vacancy={v}
+                    active={pathname === `/app/v/${v.id}`}
+                    currentGroupId={null}
+                    groupOptions={groupOptions}
+                    onMoveGroup={move}
+                    onDragStart={() => setDragging(true)}
+                    onDragEnd={() => setDragging(false)}
+                  />
+                ))}
+                {dragging && ungrouped.length === 0 && (
+                  <p className="rounded-lg border border-dashed px-3 py-2 text-center text-xs text-muted-foreground">
+                    {t.group.dropToUngroup}
+                  </p>
+                )}
+              </DropZone>
+              {groups.map((g) => (
+                <GroupSection
+                  key={g.id}
+                  group={g}
+                  groupOptions={groupOptions}
+                  dragging={dragging}
+                  onMove={move}
+                  onDragStart={() => setDragging(true)}
+                  onDragEnd={() => setDragging(false)}
+                />
+              ))}
+            </>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       <UserMenu user={user} />
 
-      <CompanyDialog open={addOpen} onOpenChange={setAddOpen} />
+      <GroupDialog open={addGroupOpen} onOpenChange={setAddGroupOpen} />
+    </>
+  );
+}
+
+/** Desktop sidebar (md and up). */
+export function AppSidebar(props: SidebarProps) {
+  return (
+    <aside className="hidden h-full w-[272px] shrink-0 flex-col border-r bg-sidebar md:flex">
+      <SidebarBody {...props} />
     </aside>
   );
 }
 
-function CompanyGroup({ company }: { company: CompanyItem }) {
+/** Mobile top bar with a hamburger that opens the sidebar in a drawer. */
+export function MobileNav(props: SidebarProps) {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  // Close the drawer on navigation.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpen(false);
+  }, [pathname]);
+
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-1 border-b bg-sidebar px-2 md:hidden">
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label="Menu">
+            <Menu className="size-5" />
+          </Button>
+        </SheetTrigger>
+        <SheetContent
+          side="left"
+          className="flex w-[272px] flex-col gap-0 bg-sidebar p-0"
+        >
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <SidebarBody {...props} />
+        </SheetContent>
+      </Sheet>
+      <Link href="/" className="text-base font-semibold tracking-tight">
+        Vivi
+      </Link>
+    </div>
+  );
+}
+
+function GroupSection({
+  group,
+  groupOptions,
+  dragging,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: {
+  group: GroupItem;
+  groupOptions: GroupOption[];
+  dragging: boolean;
+  onMove: (vacancyId: string, groupId: string | null) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
   const t = useT();
   const pathname = usePathname();
   const [open, setOpen] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [adding, startAdd] = useTransition();
   const [deleting, startDelete] = useTransition();
 
   return (
-    <div>
+    <DropZone
+      onDropVacancy={(id) => onMove(id, group.id)}
+      disabled={!dragging}
+      className="mt-1 rounded-lg"
+      activeClassName="ring-2 ring-primary/40 bg-sidebar-accent/20"
+    >
       <div className="group flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors hover:bg-sidebar-accent/40">
         <button
           onClick={() => setOpen((v) => !v)}
@@ -146,19 +345,16 @@ function CompanyGroup({ company }: { company: CompanyItem }) {
               open && "rotate-90",
             )}
           />
-          <span className="flex size-4 shrink-0 items-center justify-center rounded bg-primary/15 text-[9px] font-semibold text-primary">
-            {company.name.slice(0, 1).toUpperCase()}
-          </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {company.name}
+            {group.name}
           </span>
         </button>
 
         <button
-          title={t.company.addVacancy}
-          aria-label={t.company.addVacancy}
+          title={t.group.addVacancy}
+          aria-label={t.group.addVacancy}
           disabled={adding}
-          onClick={() => startAdd(() => createVacancy(company.id))}
+          onClick={() => startAdd(() => createVacancy(group.id))}
           className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
         >
           {adding ? (
@@ -177,80 +373,122 @@ function CompanyGroup({ company }: { company: CompanyItem }) {
               <MoreHorizontal className="size-4" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem onSelect={() => setEditOpen(true)}>
-              <Settings2 className="size-4" />
-              {t.company.edit}
+              <Pencil className="size-4" />
+              {t.group.rename}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
               disabled={deleting}
-              onSelect={() => {
-                if (confirm(t.company.deleteConfirm)) {
-                  startDelete(() => deleteCompany(company.id));
-                }
-              }}
+              onSelect={() => setConfirmOpen(true)}
             >
               <Trash2 className="size-4" />
-              {t.company.delete}
+              {t.group.delete}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       {open && (
-        <div className="mt-0.5 ml-[15px] border-l pl-2">
-          {company.vacancies.length === 0 ? (
+        <div className="mt-0.5 pl-6">
+          {group.vacancies.length === 0 ? (
             <button
               disabled={adding}
-              onClick={() => startAdd(() => createVacancy(company.id))}
+              onClick={() => startAdd(() => createVacancy(group.id))}
               className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               <Plus className="size-3.5" />
-              {t.company.addVacancy}
+              {t.group.addVacancy}
             </button>
           ) : (
-            company.vacancies.map((v) => (
+            group.vacancies.map((v) => (
               <VacancyRow
                 key={v.id}
                 vacancy={v}
                 active={pathname === `/app/v/${v.id}`}
+                currentGroupId={group.id}
+                groupOptions={groupOptions}
+                onMoveGroup={onMove}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
               />
             ))
           )}
         </div>
       )}
 
-      <CompanyDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        company={company}
+      <GroupDialog open={editOpen} onOpenChange={setEditOpen} group={group} />
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={t.group.delete}
+        description={t.group.deleteConfirm}
+        confirmLabel={t.group.delete}
+        cancelLabel={t.common.cancel}
+        destructive
+        pending={deleting}
+        onConfirm={() =>
+          startDelete(async () => {
+            await deleteGroup(group.id);
+            setConfirmOpen(false);
+          })
+        }
       />
-    </div>
+    </DropZone>
   );
 }
+
+const NO_GROUP = "none";
 
 function VacancyRow({
   vacancy,
   active,
+  currentGroupId,
+  groupOptions,
+  onMoveGroup,
+  onDragStart,
+  onDragEnd,
 }: {
   vacancy: VacancyItem;
   active: boolean;
+  currentGroupId: string | null;
+  groupOptions: GroupOption[];
+  onMoveGroup: (vacancyId: string, groupId: string | null) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }) {
   const t = useT();
   const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [title, setTitle] = useState(vacancy.title);
+  const [groupValue, setGroupValue] = useState(currentGroupId ?? NO_GROUP);
+  const [dragging, setDragging] = useState(false);
   const [pending, startTransition] = useTransition();
 
   return (
     <>
       <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(VACANCY_MIME, vacancy.id);
+          e.dataTransfer.setData("text/plain", vacancy.id);
+          e.dataTransfer.effectAllowed = "move";
+          setDragging(true);
+          onDragStart();
+        }}
+        onDragEnd={() => {
+          setDragging(false);
+          onDragEnd();
+        }}
         className={cn(
           "group flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
           active
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-accent/60",
+          dragging && "opacity-50",
         )}
       >
         <span
@@ -258,6 +496,7 @@ function VacancyRow({
         />
         <Link
           href={`/app/v/${vacancy.id}`}
+          draggable={false}
           className="min-w-0 flex-1 truncate"
           title={vacancy.title}
         >
@@ -280,7 +519,7 @@ function VacancyRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onSelect={() => startTransition(() => deleteVacancy(vacancy.id))}
+              onSelect={() => setDeleteOpen(true)}
             >
               <Trash2 className="size-4" />
               {t.common.delete}
@@ -289,19 +528,59 @@ function VacancyRow({
         </DropdownMenu>
       </div>
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t.sidebar.deleteTitle}
+        description={t.sidebar.deleteConfirm}
+        confirmLabel={t.common.delete}
+        cancelLabel={t.common.cancel}
+        destructive
+        pending={pending}
+        onConfirm={() => startTransition(() => deleteVacancy(vacancy.id))}
+      />
+
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(v) => {
+          setRenameOpen(v);
+          if (v) {
+            // Reset to current values when (re)opening.
+            setTitle(vacancy.title);
+            setGroupValue(currentGroupId ?? NO_GROUP);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t.sidebar.renameTitle}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="rename">{t.sidebar.nameLabel}</Label>
-            <Input
-              id="rename"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              autoFocus
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="rename">{t.sidebar.nameLabel}</Label>
+              <Input
+                id="rename"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="rename-group">{t.sidebar.group}</Label>
+              <Select value={groupValue} onValueChange={setGroupValue}>
+                <SelectTrigger id="rename-group" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_GROUP}>{t.sidebar.noGroup}</SelectItem>
+                  {groupOptions.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRenameOpen(false)}>
@@ -311,11 +590,18 @@ function VacancyRow({
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
-                  await renameVacancy(vacancy.id, title);
+                  const nextGroup = groupValue === NO_GROUP ? null : groupValue;
+                  if (nextGroup !== currentGroupId) {
+                    onMoveGroup(vacancy.id, nextGroup);
+                  }
+                  if (title.trim() !== vacancy.title) {
+                    await renameVacancy(vacancy.id, title);
+                  }
                   setRenameOpen(false);
                 })
               }
             >
+              {pending && <Loader2 className="size-4 animate-spin" />}
               {t.common.save}
             </Button>
           </DialogFooter>
@@ -332,26 +618,53 @@ function UserMenu({
 }) {
   const router = useRouter();
   const t = useT();
-  const initials = (user.name || user.email).slice(0, 2).toUpperCase();
+  const { resolvedTheme, setTheme } = useTheme();
+  const dark = resolvedTheme === "dark";
 
   return (
     <div className="border-t p-3">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-sidebar-accent/60">
-            <Avatar className="size-7">
-              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-            </Avatar>
+            <UserAvatar user={user} size="sm" />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
               {user.email}
             </span>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top" className="w-56">
+        <DropdownMenuContent align="start" side="top" className="w-60">
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             {user.name || t.sidebar.noName}
             <div className="truncate">{user.email}</div>
           </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/app/settings">
+              <Settings className="size-4" />
+              {t.sidebar.profileSettings}
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/app/settings/company">
+              <Building2 className="size-4" />
+              {t.team.companySettings}
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/app/settings/members">
+              <UserPlus className="size-4" />
+              {t.team.manage}
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setTheme(dark ? "light" : "dark");
+            }}
+          >
+            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {dark ? t.sidebar.switchToLight : t.sidebar.switchToDark}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() =>

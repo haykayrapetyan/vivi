@@ -1,0 +1,1 @@
+ALTER TABLE "vacancy" ALTER COLUMN "title" SET DEFAULT 'New vacancy';

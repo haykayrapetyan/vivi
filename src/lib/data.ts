@@ -1,37 +1,78 @@
 import "server-only";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   candidate,
   chatMessage,
-  company,
+  group,
   interviewAnswer,
   interviewQuestion,
   member,
   organization,
+  user,
   vacancy,
 } from "@/lib/db/schema";
 
-export async function listCompanies(organizationId: string) {
-  return db
-    .select()
-    .from(company)
-    .where(eq(company.organizationId, organizationId))
-    .orderBy(asc(company.createdAt));
+/** The user's saved theme preference (from their profile). */
+export async function getUserTheme(
+  userId: string,
+): Promise<"light" | "dark" | null> {
+  const [u] = await db
+    .select({ theme: user.theme })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  return u?.theme ?? null;
 }
 
-/** Loads a company and enforces org membership. */
-export async function getOwnedCompany(id: string, userId: string) {
-  const [c] = await db.select().from(company).where(eq(company.id, id)).limit(1);
-  if (!c) return null;
+/** Lists the (optional) vacancy groups inside a company (organization). */
+export async function listGroups(organizationId: string) {
+  return db
+    .select()
+    .from(group)
+    .where(eq(group.organizationId, organizationId))
+    .orderBy(asc(group.createdAt));
+}
+
+/** Loads a group and enforces org membership. */
+export async function getOwnedGroup(id: string, userId: string) {
+  const [g] = await db.select().from(group).where(eq(group.id, id)).limit(1);
+  if (!g) return null;
   const [m] = await db
     .select({ id: member.id })
     .from(member)
     .where(
-      and(eq(member.organizationId, c.organizationId), eq(member.userId, userId)),
+      and(eq(member.organizationId, g.organizationId), eq(member.userId, userId)),
     )
     .limit(1);
-  return m ? c : null;
+  return m ? g : null;
+}
+
+/** The company (organization) profile: name, website, AI description, logo. */
+export async function getOrganization(organizationId: string) {
+  const [o] = await db
+    .select()
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
+  return o ?? null;
+}
+
+/** Members of an organization with their profile basics (for owner pickers,
+ * member lists). */
+export async function getOrgMembers(organizationId: string) {
+  return db
+    .select({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      role: member.role,
+    })
+    .from(member)
+    .innerJoin(user, eq(member.userId, user.id))
+    .where(eq(member.organizationId, organizationId))
+    .orderBy(asc(user.name));
 }
 
 export async function getUserOrganizations(userId: string) {
@@ -125,17 +166,22 @@ export async function getAnswersByVacancy(vacancyId: string) {
     .orderBy(asc(interviewAnswer.createdAt));
 }
 
-export async function getCompanyById(id: string) {
-  const [c] = await db.select().from(company).where(eq(company.id, id)).limit(1);
-  return c ?? null;
-}
 
-/** Public: fetch a published vacancy by its slug. */
+/**
+ * Public: fetch a vacancy by its slug. Returns published AND closed vacancies
+ * (the page shows a "no longer accepting" notice for closed ones); drafts and
+ * archived vacancies stay hidden. Status checks for writes happen in actions.
+ */
 export async function getPublicVacancy(slug: string) {
   const [v] = await db
     .select()
     .from(vacancy)
-    .where(and(eq(vacancy.publicSlug, slug), eq(vacancy.status, "published")))
+    .where(
+      and(
+        eq(vacancy.publicSlug, slug),
+        inArray(vacancy.status, ["published", "closed"]),
+      ),
+    )
     .limit(1);
   return v ?? null;
 }

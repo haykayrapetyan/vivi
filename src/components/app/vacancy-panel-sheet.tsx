@@ -10,17 +10,23 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { useT } from "@/lib/i18n/client";
-import { VacancyPanel, type PanelVacancy } from "./vacancy-panel";
+import {
+  VacancyPanel,
+  type PanelVacancy,
+  type PanelMember,
+} from "./vacancy-panel";
 import type { CandidateRow } from "./candidates-review";
 
 export function VacancyPanelSheet({
   vacancy,
   questions,
   candidates,
+  members,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
+  members: PanelMember[];
 }) {
   const t = useT();
   return (
@@ -51,6 +57,7 @@ export function VacancyPanelSheet({
             vacancy={vacancy}
             questions={questions}
             candidates={candidates}
+            members={members}
           />
         </div>
       </SheetContent>

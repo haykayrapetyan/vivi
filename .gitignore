@@ -37,6 +37,11 @@ yarn-error.log*
 .env*
 !.env.example
 
+# cloudflare agent worker (local)
+agent-worker/.dev.vars
+agent-worker/.wrangler/
+agent-worker/node_modules
+
 # local Claude settings (keep launch.json, ignore personal settings)
 .claude/settings.local.json
 

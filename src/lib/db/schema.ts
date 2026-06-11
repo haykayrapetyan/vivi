@@ -7,6 +7,7 @@ import {
   timestamp,
   integer,
   jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 
 const id = () =>
@@ -22,6 +23,7 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  theme: text("theme").$type<"light" | "dark">(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
@@ -72,11 +74,15 @@ export const verification = pgTable("verification", {
 
 /* --------------------- better-auth: organizations ---------------------- */
 
+// An organization IS a company (one company per workspace). The company
+// profile (website / AI description / logo) lives here.
 export const organization = pgTable("organization", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").unique(),
   logo: text("logo"),
+  website: text("website"),
+  descriptionMd: text("description_md"),
   metadata: text("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -110,14 +116,14 @@ export const invitation = pgTable("invitation", {
 
 /* ------------------------------- domain -------------------------------- */
 
-export const company = pgTable("company", {
+// A "group" is an optional, name-only grouping of vacancies inside a company.
+// (Kept on the DB table "company" to avoid a destructive rename.)
+export const group = pgTable("company", {
   id: id(),
   organizationId: text("organization_id")
     .notNull()
     .references(() => organization.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  website: text("website"),
-  descriptionMd: text("description_md"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
@@ -125,17 +131,24 @@ export const company = pgTable("company", {
     .$onUpdate(() => new Date()),
 });
 
-export type VacancyStatus = "draft" | "published" | "closed";
+export type VacancyStatus = "draft" | "published" | "closed" | "archived";
+
+export type WorkMode = "remote" | "hybrid" | "onsite";
+export type SalaryPeriod = "month" | "year" | "hour";
 
 export type VacancyDetails = {
-  company?: string;
-  location?: string;
   employmentType?: string;
+  workMode?: WorkMode;
+  location?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryCurrency?: string;
+  salaryPeriod?: SalaryPeriod;
   seniority?: string;
-  salaryRange?: string;
   skills?: string[];
-  responsibilities?: string[];
-  requirements?: string[];
+  // legacy fields (kept for older rows)
+  company?: string;
+  salaryRange?: string;
 };
 
 export const vacancy = pgTable("vacancy", {
@@ -146,14 +159,68 @@ export const vacancy = pgTable("vacancy", {
   organizationId: text("organization_id").references(() => organization.id, {
     onDelete: "cascade",
   }),
-  companyId: text("company_id").references(() => company.id, {
-    onDelete: "cascade",
+  groupId: text("company_id").references(() => group.id, {
+    onDelete: "set null",
   }),
-  title: text("title").notNull().default("Новая вакансия"),
+  title: text("title").notNull().default("New vacancy"),
   status: text("status").$type<VacancyStatus>().notNull().default("draft"),
   descriptionMd: text("description_md"),
   details: jsonb("details").$type<VacancyDetails>(),
   publicSlug: text("public_slug").unique(),
+  viewCount: integer("view_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+}, (t) => [
+  index("vacancy_org_idx").on(t.organizationId),
+  index("vacancy_company_idx").on(t.groupId),
+]);
+
+export type ChatRole = "user" | "assistant" | "system";
+
+// 'chat' = written in the interactive conversation; 'auto' = posted by an
+// autonomous agent run (screening result, digest, …).
+export type ChatSource = "chat" | "auto";
+
+export const chatMessage = pgTable(
+  "chat_message",
+  {
+    id: id(),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    role: text("role").$type<ChatRole>().notNull(),
+    content: text("content").notNull(),
+    source: text("source").$type<ChatSource>().notNull().default("chat"),
+    // Which org member wrote a user message (chat is shared per vacancy).
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("chat_message_vacancy_idx").on(t.vacancyId)],
+);
+
+/* -------------------------------- agent -------------------------------- */
+
+// Autonomy ladder: suggest = analyse + recommend in chat only;
+// draft = prepare outward actions for approval; act = execute with limits.
+export type AgentAutonomy = "suggest" | "draft" | "act";
+
+// One recruiter agent per vacancy. Created lazily on first use.
+export const vacancyAgent = pgTable("vacancy_agent", {
+  id: id(),
+  vacancyId: text("vacancy_id")
+    .notNull()
+    .unique()
+    .references(() => vacancy.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  autonomy: text("autonomy").$type<AgentAutonomy>().notNull().default("suggest"),
+  // Standing instructions from the recruiter ("focus on senior remote", …).
+  instructions: text("instructions"),
+  lastRunAt: timestamp("last_run_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
@@ -161,27 +228,58 @@ export const vacancy = pgTable("vacancy", {
     .$onUpdate(() => new Date()),
 });
 
-export type ChatRole = "user" | "assistant" | "system";
+export type AgentTrigger = "candidate_completed" | "schedule" | "manual";
+export type AgentRunStatus = "running" | "done" | "failed" | "skipped";
 
-export const chatMessage = pgTable("chat_message", {
-  id: id(),
-  vacancyId: text("vacancy_id")
-    .notNull()
-    .references(() => vacancy.id, { onDelete: "cascade" }),
-  role: text("role").$type<ChatRole>().notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+// Audit log: one row per agent wake-up.
+export const agentRun = pgTable(
+  "agent_run",
+  {
+    id: id(),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    trigger: text("trigger").$type<AgentTrigger>().notNull(),
+    status: text("status").$type<AgentRunStatus>().notNull().default("running"),
+    summary: text("summary"),
+    error: text("error"),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [index("agent_run_vacancy_idx").on(t.vacancyId)],
+);
 
-export const interviewQuestion = pgTable("interview_question", {
-  id: id(),
-  vacancyId: text("vacancy_id")
-    .notNull()
-    .references(() => vacancy.id, { onDelete: "cascade" }),
-  orderIndex: integer("order_index").notNull().default(0),
-  text: text("text").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+// Idempotency: a unit of agent work that must happen at most once
+// (e.g. key "screen:<candidateId>"). Insert-first; unique key races safely.
+export const agentTask = pgTable(
+  "agent_task",
+  {
+    id: id(),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    key: text("key").notNull().unique(),
+    runId: text("run_id").references(() => agentRun.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("agent_task_vacancy_idx").on(t.vacancyId)],
+);
+
+export const interviewQuestion = pgTable(
+  "interview_question",
+  {
+    id: id(),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    orderIndex: integer("order_index").notNull().default(0),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("interview_question_vacancy_idx").on(t.vacancyId)],
+);
 
 export type CandidateStatus =
   | "applied"
@@ -197,47 +295,58 @@ export type AiEvaluation = {
   recommendation: string;
 };
 
-export const candidate = pgTable("candidate", {
-  id: id(),
-  vacancyId: text("vacancy_id")
-    .notNull()
-    .references(() => vacancy.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  email: text("email").notNull(),
-  phone: text("phone"),
-  status: text("status").$type<CandidateStatus>().notNull().default("applied"),
-  rating: integer("rating"),
-  notes: text("notes"),
-  aiScore: integer("ai_score"),
-  aiEvaluation: jsonb("ai_evaluation").$type<AiEvaluation>(),
-  aiEvaluatedAt: timestamp("ai_evaluated_at"),
-  // token used by the candidate to access their interview page
-  publicToken: text("public_token")
-    .notNull()
-    .unique()
-    .$defaultFn(() => nanoid(32)),
-  completedAt: timestamp("completed_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const candidate = pgTable(
+  "candidate",
+  {
+    id: id(),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    phone: text("phone"),
+    status: text("status")
+      .$type<CandidateStatus>()
+      .notNull()
+      .default("applied"),
+    rating: integer("rating"),
+    notes: text("notes"),
+    aiScore: integer("ai_score"),
+    aiEvaluation: jsonb("ai_evaluation").$type<AiEvaluation>(),
+    aiEvaluatedAt: timestamp("ai_evaluated_at"),
+    // token used by the candidate to access their interview page
+    publicToken: text("public_token")
+      .notNull()
+      .unique()
+      .$defaultFn(() => nanoid(32)),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("candidate_vacancy_idx").on(t.vacancyId)],
+);
 
-export const interviewAnswer = pgTable("interview_answer", {
-  id: id(),
-  candidateId: text("candidate_id")
-    .notNull()
-    .references(() => candidate.id, { onDelete: "cascade" }),
-  questionId: text("question_id")
-    .notNull()
-    .references(() => interviewQuestion.id, { onDelete: "cascade" }),
-  videoPath: text("video_path").notNull(),
-  mimeType: text("mime_type").notNull().default("video/webm"),
-  durationSec: integer("duration_sec"),
-  transcript: text("transcript"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const interviewAnswer = pgTable(
+  "interview_answer",
+  {
+    id: id(),
+    candidateId: text("candidate_id")
+      .notNull()
+      .references(() => candidate.id, { onDelete: "cascade" }),
+    questionId: text("question_id")
+      .notNull()
+      .references(() => interviewQuestion.id, { onDelete: "cascade" }),
+    videoPath: text("video_path").notNull(),
+    mimeType: text("mime_type").notNull().default("video/webm"),
+    durationSec: integer("duration_sec"),
+    transcript: text("transcript"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("interview_answer_candidate_idx").on(t.candidateId)],
+);
 
 /* ------------------------------ relations ------------------------------ */
 
@@ -245,15 +354,15 @@ export const userRelations = relations(user, ({ many }) => ({
   vacancies: many(vacancy),
 }));
 
-export const companyRelations = relations(company, ({ many }) => ({
+export const groupRelations = relations(group, ({ many }) => ({
   vacancies: many(vacancy),
 }));
 
 export const vacancyRelations = relations(vacancy, ({ one, many }) => ({
   owner: one(user, { fields: [vacancy.userId], references: [user.id] }),
-  company: one(company, {
-    fields: [vacancy.companyId],
-    references: [company.id],
+  group: one(group, {
+    fields: [vacancy.groupId],
+    references: [group.id],
   }),
   messages: many(chatMessage),
   questions: many(interviewQuestion),
@@ -300,9 +409,13 @@ export const interviewAnswerRelations = relations(interviewAnswer, ({ one }) => 
 /* ------------------------------- types --------------------------------- */
 
 export type User = typeof user.$inferSelect;
-export type Company = typeof company.$inferSelect;
+export type Group = typeof group.$inferSelect;
+export type Organization = typeof organization.$inferSelect;
 export type Vacancy = typeof vacancy.$inferSelect;
 export type ChatMessage = typeof chatMessage.$inferSelect;
 export type InterviewQuestion = typeof interviewQuestion.$inferSelect;
 export type Candidate = typeof candidate.$inferSelect;
 export type InterviewAnswer = typeof interviewAnswer.$inferSelect;
+export type VacancyAgent = typeof vacancyAgent.$inferSelect;
+export type AgentRun = typeof agentRun.$inferSelect;
+export type AgentTask = typeof agentTask.$inferSelect;

@@ -34,18 +34,18 @@ export async function transcribeBuffer(buffer: Buffer): Promise<string | null> {
 }
 
 const evalSchema = z.object({
-  summary: z.string().describe("Краткое саммари по кандидату, 2–4 предложения"),
-  strengths: z.array(z.string()).describe("Сильные стороны кандидата"),
-  concerns: z.array(z.string()).describe("Риски и слабые места"),
+  summary: z.string().describe("Short candidate summary, 2–4 sentences"),
+  strengths: z.array(z.string()).describe("The candidate's strengths"),
+  concerns: z.array(z.string()).describe("Risks and weak spots"),
   recommendation: z
     .string()
-    .describe("Итоговая рекомендация рекрутёру одним предложением"),
+    .describe("A one-sentence recommendation for the recruiter"),
   score: z
     .number()
     .int()
     .min(1)
     .max(10)
-    .describe("Оценка соответствия вакансии от 1 до 10"),
+    .describe("Fit score for the role from 1 to 10"),
 });
 
 /**
@@ -103,22 +103,22 @@ export async function evaluateCandidate(candidateId: string): Promise<boolean> {
   const qa = questions
     .map((q, i) => {
       const t = answerByQ.get(q.id)?.transcript?.trim();
-      return `Вопрос ${i + 1}: ${q.text}\nОтвет: ${
-        t || "[ответ отсутствует или не распознан]"
+      return `Question ${i + 1}: ${q.text}\nAnswer: ${
+        t || "[answer missing or not recognized]"
       }`;
     })
     .join("\n\n");
 
-  const prompt = `Ты — ассистент рекрутёра. Оцени кандидата по ответам на видеоинтервью. Будь объективным и опирайся только на содержание ответов.
+  const prompt = `You are a recruiting assistant. Evaluate the candidate based on their video-interview answers. Be objective and rely only on the content of the answers.
 
-Вакансия: ${vac.title}
-${vac.descriptionMd ? `Описание:\n${vac.descriptionMd}\n` : ""}
-Кандидат: ${cand.name}
+Role: ${vac.title}
+${vac.descriptionMd ? `Description:\n${vac.descriptionMd}\n` : ""}
+Candidate: ${cand.name}
 
-Ответы (транскрипты):
+Answers (transcripts):
 ${qa}
 
-Дай оценку на русском языке. Если ответов нет или они не по теме — отметь это и снизь оценку.`;
+Give your evaluation in English. If there are no answers or they are off-topic, note that and lower the score.`;
 
   try {
     const { object } = await generateObject({

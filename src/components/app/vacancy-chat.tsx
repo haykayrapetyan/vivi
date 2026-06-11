@@ -4,19 +4,41 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { ArrowUp, FileCheck2, Loader2, Sparkles } from "lucide-react";
+import {
+  ArrowUp,
+  FileCheck2,
+  Loader2,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
+import { VoiceInputButton } from "@/components/app/voice-input-button";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
 
+/** Per-message metadata carried through UIMessage.metadata. */
+export type ChatMeta = {
+  source?: "chat" | "auto";
+  createdAt?: string;
+};
+
+function metaOf(m: UIMessage): ChatMeta {
+  return (m.metadata ?? {}) as ChatMeta;
+}
+
 export function VacancyChat({
   vacancyId,
   initialMessages,
+  initialPrompt,
+  syncFrom,
 }: {
   vacancyId: string;
   initialMessages: UIMessage[];
+  initialPrompt?: string;
+  /** ISO timestamp to poll for autonomous agent messages after. */
+  syncFrom: string;
 }) {
   const router = useRouter();
   const t = useT();
@@ -27,8 +49,9 @@ export function VacancyChat({
   ];
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const autoSentRef = useRef(false);
 
-  const { messages, sendMessage, status, error } = useChat({
+  const { messages, sendMessage, status, error, setMessages } = useChat({
     transport: new DefaultChatTransport({
       api: `/api/vacancy/${vacancyId}/chat`,
     }),
@@ -37,6 +60,84 @@ export function VacancyChat({
   });
 
   const busy = status === "submitted" || status === "streaming";
+
+  // Refs so the polling loop sees fresh state without re-subscribing.
+  const messagesRef = useRef(initialMessages);
+  const busyRef = useRef(false);
+  const lastTsRef = useRef(syncFrom);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  // Poll for messages the agent posted autonomously (completed interviews,
+  // digests) and merge them into the open thread. `useChat`'s message state
+  // is initial-only, so a server refresh alone would never show them.
+  useEffect(() => {
+    let stopped = false;
+    let inflight = false;
+
+    const tick = async () => {
+      if (stopped || inflight || busyRef.current || document.hidden) return;
+      inflight = true;
+      try {
+        const res = await fetch(
+          `/api/vacancy/${vacancyId}/chat/messages?after=${encodeURIComponent(
+            lastTsRef.current,
+          )}`,
+        );
+        if (!res.ok) return;
+        const data: {
+          messages: {
+            id: string;
+            role: string;
+            content: string;
+            createdAt: string;
+          }[];
+        } = await res.json();
+        if (!data.messages.length) return;
+        lastTsRef.current = data.messages[data.messages.length - 1].createdAt;
+
+        const known = new Set(messagesRef.current.map((m) => m.id));
+        const fresh: UIMessage[] = data.messages
+          .filter((m) => !known.has(m.id))
+          .map((m) => ({
+            id: m.id,
+            role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+            parts: [{ type: "text" as const, text: m.content }],
+            metadata: { source: "auto", createdAt: m.createdAt } as ChatMeta,
+          }));
+        if (fresh.length && !busyRef.current) {
+          setMessages([...messagesRef.current, ...fresh]);
+          router.refresh();
+        }
+      } catch {
+        // Network hiccup — next tick will retry.
+      } finally {
+        inflight = false;
+      }
+    };
+
+    const timer = setInterval(tick, 5000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [vacancyId, setMessages, router]);
+
+  // Auto-send the prompt carried over from the landing-page composer so the AI
+  // starts building the vacancy immediately. Fires once, only for a fresh chat.
+  useEffect(() => {
+    const text = initialPrompt?.trim();
+    if (!text || autoSentRef.current || initialMessages.length > 0) return;
+    autoSentRef.current = true;
+    sendMessage({ text });
+    window.history.replaceState(null, "", `/app/v/${vacancyId}`);
+  }, [initialPrompt, initialMessages.length, sendMessage, vacancyId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -112,6 +213,12 @@ export function VacancyChat({
               placeholder={t.chat.placeholder}
               className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             />
+            <VoiceInputButton
+              disabled={busy}
+              onTranscript={(text) =>
+                setInput((prev) => (prev ? `${prev.trim()} ${text}` : text))
+              }
+            />
             <Button
               size="icon"
               className="size-9 rounded-xl"
@@ -134,6 +241,7 @@ export function VacancyChat({
 function MessageBubble({ message }: { message: UIMessage }) {
   const t = useT();
   const isUser = message.role === "user";
+  const isAuto = metaOf(message).source === "auto";
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -143,8 +251,15 @@ function MessageBubble({ message }: { message: UIMessage }) {
           isUser
             ? "bg-primary text-primary-foreground"
             : "bg-card text-card-foreground",
+          isAuto && "border border-primary/25",
         )}
       >
+        {isAuto && (
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-primary">
+            <Sparkles className="size-3" />
+            {t.chat.agentBadge}
+          </div>
+        )}
         {message.parts.map((part, i) => {
           if (part.type === "text") {
             return isUser ? (
@@ -158,22 +273,47 @@ function MessageBubble({ message }: { message: UIMessage }) {
           if (part.type === "tool-save_vacancy") {
             const done = part.state === "output-available";
             return (
-              <div
-                key={i}
-                className="my-1 flex items-center gap-2 rounded-lg border bg-background/40 px-2.5 py-1.5 text-xs text-muted-foreground"
-              >
-                {done ? (
-                  <FileCheck2 className="size-3.5 text-emerald-500" />
-                ) : (
-                  <Loader2 className="size-3.5 animate-spin" />
-                )}
+              <ToolChip key={i} done={done}>
                 {done ? t.chat.draftUpdated : t.chat.draftUpdating}
-              </div>
+              </ToolChip>
+            );
+          }
+          if (
+            part.type === "tool-list_candidates" ||
+            part.type === "tool-get_candidate"
+          ) {
+            const done =
+              "state" in part && part.state === "output-available";
+            return (
+              <ToolChip key={i} done={done} icon={<Users className="size-3.5" />}>
+                {t.chat.checkingCandidates}
+              </ToolChip>
             );
           }
           return null;
         })}
       </div>
+    </div>
+  );
+}
+
+function ToolChip({
+  done,
+  icon,
+  children,
+}: {
+  done: boolean;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="my-1 flex items-center gap-2 rounded-lg border bg-background/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+      {done ? (
+        (icon ?? <FileCheck2 className="size-3.5 text-emerald-500" />)
+      ) : (
+        <Loader2 className="size-3.5 animate-spin" />
+      )}
+      {children}
     </div>
   );
 }

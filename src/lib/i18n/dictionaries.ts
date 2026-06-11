@@ -1,11 +1,6 @@
-export const locales = ["ru", "en"] as const;
+export const locales = ["en"] as const;
 export type Locale = (typeof locales)[number];
-export const defaultLocale: Locale = "ru";
-export const LOCALE_COOKIE = "vivi_locale";
-
-export function isLocale(value: string | undefined): value is Locale {
-  return value === "ru" || value === "en";
-}
+export const defaultLocale: Locale = "en";
 
 /** Replaces {placeholders} in a template string. */
 export function interpolate(
@@ -17,241 +12,7 @@ export function interpolate(
   );
 }
 
-const ru = {
-  common: {
-    appName: "Vivi",
-    brandSubtitle: "AI-рекрутинг с видеоинтервью",
-    save: "Сохранить",
-    cancel: "Отмена",
-    delete: "Удалить",
-    edit: "Редактировать",
-    add: "Добавить",
-    copy: "Копировать",
-    copied: "Скопировано",
-    open: "Открыть",
-    home: "На главную",
-    of: "из",
-  },
-  theme: { light: "Светлая", dark: "Тёмная", system: "Системная" },
-  locale: { label: "Язык", ru: "Русский", en: "English" },
-  landing: {
-    signIn: "Войти",
-    start: "Начать",
-    openApp: "Открыть приложение",
-    badge: "AI создаёт вакансию и проводит видеоинтервью",
-    heroTitle: "Нанимайте быстрее с AI-рекрутером",
-    heroSubtitle:
-      "Опишите вакансию в чате — Vivi уточнит детали, соберёт описание и создаст ссылку с видеоинтервью для кандидатов. Все ответы — в одном месте.",
-    ctaCreate: "Создать вакансию",
-    f1Title: "Чат с AI",
-    f1Text:
-      "Опишите вакансию свободным текстом — AI задаст уточняющие вопросы и сформирует описание.",
-    f2Title: "Ссылка для кандидатов",
-    f2Text:
-      "Уникальная страница вакансии с формой отклика — делитесь одной ссылкой.",
-    f3Title: "Видеоинтервью",
-    f3Text:
-      "Кандидаты отвечают на вопросы под вакансию на видео. Вы оцениваете в удобное время.",
-  },
-  auth: {
-    title: "Вход в аккаунт",
-    subtitle: "Введите email — отправим ссылку для входа.",
-    emailLabel: "Email",
-    emailPlaceholder: "you@company.com",
-    sendLink: "Отправить ссылку",
-    checkEmailTitle: "Проверьте почту",
-    checkEmailDesc:
-      "Мы отправили ссылку для входа на {email}. Ссылка действует 5 минут.",
-    useAnotherEmail: "Использовать другой email",
-    terms: "Продолжая, вы соглашаетесь с условиями использования.",
-    errorSend: "Не удалось отправить ссылку",
-  },
-  sidebar: {
-    newVacancy: "Новая вакансия",
-    noVacancies: "Пока нет вакансий. Создайте первую.",
-    rename: "Переименовать",
-    renameTitle: "Переименовать вакансию",
-    nameLabel: "Название",
-    signOut: "Выйти",
-    noName: "Без имени",
-  },
-  team: {
-    label: "Команда",
-    switchOrg: "Сменить организацию",
-    members: "Участники",
-    pending: "Приглашения",
-    invite: "Пригласить",
-    inviteEmail: "Email коллеги",
-    invitePlaceholder: "colleague@company.com",
-    inviteSent: "Приглашение отправлено",
-    inviteError: "Не удалось отправить приглашение",
-    cancel: "Отменить",
-    you: "вы",
-    roleOwner: "Владелец",
-    roleAdmin: "Админ",
-    roleMember: "Участник",
-    acceptTitle: "Приглашение в команду",
-    acceptDesc: "Вас пригласили присоединиться к команде в Vivi.",
-    accept: "Принять приглашение",
-    accepted: "Вы присоединились к команде",
-    acceptError: "Не удалось принять приглашение",
-    loginToAccept: "Войдите, чтобы принять приглашение",
-  },
-  appHome: {
-    title: "Создайте вакансию",
-    subtitle:
-      "Опишите роль в чате — AI задаст уточняющие вопросы, соберёт описание и вопросы для видеоинтервью.",
-  },
-  company: {
-    add: "Добавить компанию",
-    newCompany: "Новая компания",
-    edit: "Настройки компании",
-    nameLabel: "Название компании",
-    namePlaceholder: "Acme Inc.",
-    websiteLabel: "Сайт компании",
-    websitePlaceholder: "https://acme.com",
-    websiteHint: "AI изучит сайт и составит описание компании для вакансий.",
-    descriptionLabel: "Описание компании",
-    descriptionPlaceholder:
-      "Описание появится после изучения сайта. Можно отредактировать и добавить своё.",
-    studying: "AI изучает сайт…",
-    regenerate: "Сгенерировать заново",
-    create: "Создать компанию",
-    delete: "Удалить компанию",
-    deleteConfirm: "Удалить компанию и все её вакансии?",
-    created: "Компания создана",
-    addVacancy: "Новая вакансия",
-    noCompanies: "Пока нет компаний",
-    firstHint: "Добавьте компанию, чтобы создавать в ней вакансии.",
-    generateError: "Не удалось сгенерировать описание",
-    aboutTitle: "О компании",
-  },
-  chat: {
-    emptyTitle: "Опишите вакансию",
-    emptySubtitle:
-      "Напишите пару слов о роли — я задам уточняющие вопросы и помогу собрать описание и вопросы для видеоинтервью.",
-    suggestion1: "Senior Frontend разработчик, React, удалённо",
-    suggestion2: "Менеджер по продажам B2B в Москве",
-    suggestion3: "Продуктовый дизайнер, гибрид, middle+",
-    placeholder: "Сообщение AI-рекрутеру…",
-    draftUpdating: "Собираю черновик…",
-    draftUpdated: "Черновик вакансии обновлён",
-    error: "Ошибка: {message}. Проверьте, что задан OPENAI_API_KEY.",
-  },
-  panel: {
-    details: "Детали",
-    tabVacancy: "Вакансия",
-    tabCandidates: "Кандидаты",
-    publishTitle: "Публикация",
-    publishReady:
-      "Описание и вопросы готовы. Опубликуйте, чтобы получить ссылку для кандидатов.",
-    publishNotReady:
-      "Завершите описание и вопросы в чате — затем сможете опубликовать.",
-    publishBtn: "Опубликовать",
-    publishedTitle: "Вакансия опубликована",
-    publishedDesc:
-      "Отправьте эту ссылку кандидатам — они увидят описание и пройдут видеоинтервью.",
-    unpublish: "Снять с публикации",
-    descriptionTitle: "Описание",
-    descriptionPlaceholder:
-      "Описание появится здесь после диалога с AI в чате слева.",
-    questionsTitle: "Вопросы видеоинтервью",
-    questionsPlaceholder: "Вопросы для кандидатов сформирует AI.",
-    addQuestion: "Добавить вопрос",
-    questionTextPlaceholder: "Текст вопроса",
-    descEditPlaceholder: "Описание вакансии в формате Markdown…",
-    copyToast: "Ссылка скопирована",
-    publishedToast: "Вакансия опубликована",
-    publishError: "Не удалось опубликовать",
-    savedToast: "Сохранено",
-    saveError: "Не удалось сохранить",
-  },
-  candidates: {
-    emptyTitle: "Пока нет откликов",
-    emptyDesc:
-      "Опубликуйте вакансию и отправьте ссылку кандидатам. Их видеоинтервью появятся здесь.",
-    filterStatus: "Статус",
-    filterAll: "Все",
-    sortNewest: "Сначала новые",
-    sortRating: "По оценке",
-    sortAi: "По AI-оценке",
-    backToList: "Назад к списку",
-    noVideos: "Кандидат ещё не записал видеоинтервью.",
-    question: "Вопрос {n}",
-    statusUpdated: "Статус обновлён",
-    answersOf: "Ответ {n} из {m}",
-    noMatch: "Нет кандидатов под фильтр.",
-    aiTitle: "AI-оценка",
-    aiStrengths: "Сильные стороны",
-    aiConcerns: "Риски",
-    aiRecommendation: "Рекомендация",
-    aiNone: "AI-оценка появится после завершения интервью.",
-    aiRerun: "Пересчитать",
-    aiPending: "Оцениваю…",
-    aiUnavailable: "Не удалось получить AI-оценку. Проверьте OPENAI_API_KEY.",
-    showTranscript: "Транскрипт",
-    st_applied: "Откликнулся",
-    st_interviewing: "Проходит интервью",
-    st_completed: "Интервью пройдено",
-    st_shortlisted: "В шорт-листе",
-    st_rejected: "Отклонён",
-    setShortlisted: "В шорт-лист",
-    setRejected: "Отклонить",
-  },
-  publicVacancy: {
-    respondHeader: "Отклик на вакансию",
-    descriptionTitle: "Описание вакансии",
-    skillsTitle: "Навыки",
-    questionsNoteOne: "{count} вопрос в видеоинтервью",
-    questionsNoteFew: "{count} вопроса в видеоинтервью",
-    questionsNoteMany: "{count} вопросов в видеоинтервью",
-  },
-  apply: {
-    header: "Откликнуться",
-    nameLabel: "Имя и фамилия",
-    namePlaceholder: "Иван Иванов",
-    emailLabel: "Email",
-    emailPlaceholder: "you@email.com",
-    phoneLabel: "Телефон",
-    optional: "необязательно",
-    phonePlaceholder: "+7 900 000-00-00",
-    submit: "Откликнуться и пройти видеоинтервью",
-    note: "После отклика вас ждёт короткое видеоинтервью — отвечайте в удобном темпе.",
-  },
-  interview: {
-    greeting: "Здравствуйте, {name}!",
-    introDesc:
-      "Вас ждёт короткое видеоинтервью из {count} {questions}. На каждый вопрос — видеоответ с камеры. Можно перезаписать ответ перед отправкой.",
-    qOne: "вопроса",
-    qFew: "вопросов",
-    qMany: "вопросов",
-    tip1: "Найдите тихое место с хорошим освещением",
-    tip2: "Разрешите доступ к камере и микрофону",
-    tip3: "Отвечайте в удобном темпе",
-    start: "Начать интервью",
-    deniedTitle: "Нет доступа к камере",
-    deniedDesc:
-      "Разрешите доступ к камере и микрофону в настройках браузера, затем попробуйте снова.",
-    retry: "Повторить",
-    progress: "Вопрос {n} из {m}",
-    record: "Записать ответ",
-    stop: "Остановить",
-    retake: "Перезаписать",
-    submitNext: "Отправить и далее",
-    finish: "Завершить интервью",
-    maxNote:
-      "Максимум {min} мин на ответ. Отвечайте спокойно — можно перезаписать.",
-    uploadError:
-      "Не удалось загрузить ответ. Проверьте соединение и попробуйте снова.",
-    doneTitle: "Спасибо, {name}!",
-    doneDesc:
-      "Ваши видеоответы отправлены рекрутёру. Мы свяжемся с вами по итогам рассмотрения.",
-    doneDescNoQuestions:
-      "Ваш отклик получен. Рекрутёр свяжется с вами.",
-  },
-};
-
-const en: typeof ru = {
+const en = {
   common: {
     appName: "Vivi",
     brandSubtitle: "AI recruiting with video interviews",
@@ -267,7 +28,14 @@ const en: typeof ru = {
     of: "of",
   },
   theme: { light: "Light", dark: "Dark", system: "System" },
-  locale: { label: "Language", ru: "Русский", en: "English" },
+  locale: { label: "Language", en: "English" },
+  validation: {
+    nameRequired: "Please enter your name",
+    emailRequired: "Please enter your email",
+    emailInvalid: "Enter a valid email address",
+    companyNameRequired: "Company name is required",
+    groupNameRequired: "Group name is required",
+  },
   landing: {
     signIn: "Sign in",
     start: "Get started",
@@ -277,6 +45,11 @@ const en: typeof ru = {
     heroSubtitle:
       "Describe the role in a chat — Vivi clarifies the details, drafts the description and creates a link with a video interview for candidates. All answers in one place.",
     ctaCreate: "Create a vacancy",
+    composerPlaceholder:
+      "Describe the role: title, responsibilities, requirements, work mode…",
+    example1: "Senior Frontend Engineer, React, remote",
+    example2: "B2B Sales Manager in New York",
+    example3: "Product Designer (UX/UI), hybrid",
     f1Title: "AI chat",
     f1Text:
       "Describe the role in plain text — the AI asks clarifying questions and drafts the description.",
@@ -298,6 +71,7 @@ const en: typeof ru = {
     useAnotherEmail: "Use a different email",
     terms: "By continuing you agree to the terms of service.",
     errorSend: "Couldn't send the link",
+    draftSaved: "Your vacancy draft is saved — sign in to continue.",
   },
   sidebar: {
     newVacancy: "New vacancy",
@@ -305,12 +79,22 @@ const en: typeof ru = {
     rename: "Rename",
     renameTitle: "Rename vacancy",
     nameLabel: "Title",
+    group: "Group",
+    noGroup: "No group",
+    deleteTitle: "Delete vacancy",
+    deleteConfirm:
+      "Delete this vacancy? Its candidates and their video answers will be removed too.",
+    profileSettings: "Profile settings",
+    switchToLight: "Light theme",
+    switchToDark: "Dark theme",
     signOut: "Sign out",
     noName: "No name",
   },
   team: {
-    label: "Team",
-    switchOrg: "Switch organization",
+    manage: "Members & invites",
+    companySettings: "Company settings",
+    createCompany: "Create company",
+    switchCompany: "Switch company",
     members: "Members",
     pending: "Pending invitations",
     invite: "Invite",
@@ -319,6 +103,8 @@ const en: typeof ru = {
     inviteSent: "Invitation sent",
     inviteError: "Couldn't send the invitation",
     cancel: "Cancel",
+    cancelInviteTitle: "Cancel invitation",
+    cancelInviteConfirm: "Cancel the invitation for {email}?",
     you: "you",
     roleOwner: "Owner",
     roleAdmin: "Admin",
@@ -334,30 +120,68 @@ const en: typeof ru = {
     title: "Create a vacancy",
     subtitle:
       "Describe the role in the chat — the AI asks clarifying questions and assembles the description and video-interview questions.",
+    resuming: "Creating a vacancy from your description…",
+  },
+  settings: {
+    title: "Settings",
+    nav: "Settings",
+    navProfile: "Profile",
+    navCompany: "Company",
+    navMembers: "Members",
+    account: "Account",
+    avatar: "Profile photo",
+    avatarUpload: "Upload photo",
+    avatarHint: "PNG or JPG up to 2 MB.",
+    name: "Name",
+    namePlaceholder: "Your name",
+    email: "Email",
+    preferences: "Appearance",
+    language: "Interface language",
+    theme: "Theme",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeSystem: "System",
+    saved: "Saved",
+    saveError: "Couldn't save",
   },
   company: {
-    add: "Add company",
     newCompany: "New company",
-    edit: "Company settings",
+    settings: "Company settings",
     nameLabel: "Company name",
     namePlaceholder: "Acme Inc.",
     websiteLabel: "Company website",
     websitePlaceholder: "https://acme.com",
-    websiteHint: "The AI will study the site and draft a company description for vacancies.",
+    websiteHint:
+      "The AI studies your site and drafts a company description used in your vacancies.",
     descriptionLabel: "Company description",
     descriptionPlaceholder:
-      "The description will appear after studying the site. You can edit it and add your own.",
+      "The description appears after studying the site. You can edit it and add your own.",
+    logoLabel: "Logo",
+    logoUpload: "Upload logo",
+    logoHint:
+      "PNG, JPG or SVG up to 2 MB. Leave empty — we'll try to fetch it from your website.",
     studying: "AI is studying the site…",
     regenerate: "Regenerate",
     create: "Create company",
-    delete: "Delete company",
-    deleteConfirm: "Delete the company and all its vacancies?",
     created: "Company created",
-    addVacancy: "New vacancy",
-    noCompanies: "No companies yet",
-    firstHint: "Add a company to create vacancies in it.",
+    saved: "Saved",
+    saveError: "Couldn't save",
     generateError: "Couldn't generate the description",
     aboutTitle: "About the company",
+  },
+  group: {
+    add: "Add group",
+    newGroup: "New group",
+    rename: "Rename group",
+    nameLabel: "Group name",
+    namePlaceholder: "e.g. Engineering",
+    delete: "Delete group",
+    deleteConfirm: "Delete this group? Its vacancies stay (ungrouped).",
+    addVacancy: "New vacancy",
+    noGroups: "No groups yet",
+    hint: "Groups are optional — they help organize vacancies.",
+    ungrouped: "Vacancies",
+    dropToUngroup: "Drop here to remove from group",
   },
   chat: {
     emptyTitle: "Describe the role",
@@ -370,9 +194,19 @@ const en: typeof ru = {
     draftUpdating: "Building the draft…",
     draftUpdated: "Vacancy draft updated",
     error: "Error: {message}. Make sure OPENAI_API_KEY is set.",
+    agentBadge: "Agent update",
+    checkingCandidates: "Looking at the candidates…",
+    voiceStart: "Dictate your message",
+    voiceStop: "Stop recording",
+    voiceTranscribing: "Transcribing…",
+    voiceError: "Couldn't transcribe the audio. Try again.",
+    voiceMicError: "Microphone unavailable. Check browser permissions.",
   },
   panel: {
     details: "Details",
+    owner: "Responsible",
+    ownerChanged: "Responsible person updated",
+    ownerUnassigned: "Unassigned",
     tabVacancy: "Vacancy",
     tabCandidates: "Candidates",
     publishTitle: "Publishing",
@@ -398,6 +232,44 @@ const en: typeof ru = {
     publishError: "Couldn't publish",
     savedToast: "Saved",
     saveError: "Couldn't save",
+    closeBtn: "Close vacancy",
+    closedTitle: "Vacancy closed",
+    closedDesc:
+      "The public page shows a closed notice; new applications and interviews are off, and the AI recruiter is dormant.",
+    closedToast: "Vacancy closed",
+    reopenBtn: "Reopen",
+    reopenedToast: "Vacancy reopened",
+    archiveBtn: "Archive",
+    archivedTitle: "Archived",
+    archivedDesc:
+      "Hidden from the public entirely. Candidates and chat history stay for reference.",
+    archivedToast: "Vacancy archived",
+    restoreBtn: "Restore to drafts",
+    restoredToast: "Vacancy restored",
+  },
+  params: {
+    title: "Details",
+    workMode: "Work mode",
+    remote: "Remote",
+    hybrid: "Hybrid",
+    onsite: "On-site",
+    location: "Location",
+    salary: "Salary",
+    employment: "Employment",
+    seniority: "Seniority",
+    skills: "Skills",
+  },
+  analytics: {
+    tab: "Analytics",
+    funnel: "Funnel",
+    views: "Vacancy views",
+    applies: "Applications",
+    interviewed: "Recorded interview",
+    completed: "Completed interview",
+    shortlisted: "Shortlisted",
+    conversion: "Conversion",
+    ofViews: "of views",
+    empty: "No data yet. Publish the vacancy and share the link.",
   },
   candidates: {
     emptyTitle: "No applications yet",
@@ -438,6 +310,9 @@ const en: typeof ru = {
     questionsNoteOne: "{count} question in the video interview",
     questionsNoteFew: "{count} questions in the video interview",
     questionsNoteMany: "{count} questions in the video interview",
+    closedTitle: "Applications closed",
+    closedText:
+      "This vacancy is no longer accepting applications. Thanks for your interest!",
   },
   apply: {
     header: "Apply",
@@ -479,12 +354,15 @@ const en: typeof ru = {
     doneDesc:
       "Your video answers have been sent to the recruiter. We'll be in touch with the outcome.",
     doneDescNoQuestions: "Your application has been received. The recruiter will be in touch.",
+    closedTitle: "This vacancy is closed",
+    closedText:
+      "The position is no longer accepting interviews. Thanks for your interest!",
   },
 };
 
-export const dictionaries = { ru, en };
-export type Dictionary = typeof ru;
+export const dictionaries = { en };
+export type Dictionary = typeof en;
 
-export function getDictionary(locale: Locale): Dictionary {
-  return dictionaries[locale];
+export function getDictionary(): Dictionary {
+  return en;
 }

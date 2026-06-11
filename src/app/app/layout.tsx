@@ -1,6 +1,14 @@
 import { requireUserAndOrg } from "@/lib/session";
-import { getUserOrganizations, listCompanies, listVacancies } from "@/lib/data";
-import { AppSidebar } from "@/components/app/sidebar";
+import {
+  getOrganization,
+  getUserOrganizations,
+  getUserTheme,
+  listGroups,
+  listVacancies,
+} from "@/lib/data";
+import { updateUserTheme } from "@/app/app/user-actions";
+import { AppSidebar, MobileNav } from "@/components/app/sidebar";
+import { ThemeArea } from "@/components/providers";
 
 export default async function AppLayout({
   children,
@@ -8,48 +16,77 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const { user, organizationId } = await requireUserAndOrg();
-  const [companies, vacancies, organizations] = await Promise.all([
-    listCompanies(organizationId),
+  const [org, groups, vacancies, organizations, savedTheme] = await Promise.all([
+    getOrganization(organizationId),
+    listGroups(organizationId),
     listVacancies(organizationId),
     getUserOrganizations(user.id),
+    getUserTheme(user.id),
   ]);
 
-  const byCompany = new Map<
-    string,
-    { id: string; title: string; status: (typeof vacancies)[number]["status"] }[]
-  >();
+  type Item = {
+    id: string;
+    title: string;
+    status: (typeof vacancies)[number]["status"];
+  };
+  const byGroup = new Map<string, Item[]>();
+  const ungrouped: Item[] = [];
   for (const v of vacancies) {
-    if (!v.companyId) continue;
-    const list = byCompany.get(v.companyId) ?? [];
-    list.push({ id: v.id, title: v.title, status: v.status });
-    byCompany.set(v.companyId, list);
+    const item = { id: v.id, title: v.title, status: v.status };
+    if (v.groupId) {
+      const list = byGroup.get(v.groupId) ?? [];
+      list.push(item);
+      byGroup.set(v.groupId, list);
+    } else {
+      ungrouped.push(item);
+    }
   }
 
-  const companyItems = companies.map((c) => ({
-    id: c.id,
-    name: c.name,
-    website: c.website,
-    descriptionMd: c.descriptionMd,
-    vacancies: byCompany.get(c.id) ?? [],
+  const groupItems = groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    vacancies: byGroup.get(g.id) ?? [],
   }));
 
+  const activeCompany = {
+    name: org?.name ?? "Company",
+    website: org?.website ?? null,
+    descriptionMd: org?.descriptionMd ?? null,
+    logo: org?.logo ?? null,
+  };
+
+  const sidebarProps = {
+    user: {
+      name: user.name,
+      email: user.email,
+      image: user.image ?? null,
+    },
+    organizations: organizations.map((o) => ({
+      id: o.id,
+      name: o.name,
+      role: o.role,
+    })),
+    activeOrganizationId: organizationId,
+    activeCompany,
+    groups: groupItems,
+    ungrouped,
+  };
+
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
-      <AppSidebar
-        user={{
-          name: user.name,
-          email: user.email,
-          image: user.image ?? null,
-        }}
-        organizations={organizations.map((o) => ({
-          id: o.id,
-          name: o.name,
-          role: o.role,
-        }))}
-        activeOrganizationId={organizationId}
-        companies={companyItems}
-      />
-      <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
-    </div>
+    <ThemeArea
+      storageKey="vivi-app"
+      initialTheme={savedTheme}
+      onPersist={updateUserTheme}
+    >
+      <div className="flex h-dvh overflow-hidden bg-background">
+        <AppSidebar {...sidebarProps} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <MobileNav {...sidebarProps} />
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            {children}
+          </main>
+        </div>
+      </div>
+    </ThemeArea>
   );
 }

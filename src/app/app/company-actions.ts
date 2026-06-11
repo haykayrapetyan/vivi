@@ -1,84 +1,116 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { company } from "@/lib/db/schema";
+import { organization } from "@/lib/db/schema";
 import { requireUserAndOrg } from "@/lib/session";
-import { getOwnedCompany } from "@/lib/data";
+import { getOrganization } from "@/lib/data";
 import { generateCompanyDescription, normalizeUrl } from "@/lib/company-ai";
+import { fetchAndStoreLogo, logoKey, logoUrl } from "@/lib/logo";
+import { saveObject } from "@/lib/storage";
+
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+// A "company" is the active organization (workspace). These actions manage its
+// profile: name, website, AI-generated description, and logo.
 
 function cleanWebsite(website: string | null | undefined): string | null {
   if (!website || !website.trim()) return null;
   return normalizeUrl(website) ?? null;
 }
 
-export async function createCompany(name: string, website: string | null) {
+export async function updateCompany(data: {
+  name?: string;
+  website?: string | null;
+  descriptionMd?: string;
+  logo?: string | null;
+}) {
   const { organizationId } = await requireUserAndOrg();
-  const cleanName = name.trim().slice(0, 120) || "Компания";
-  const site = cleanWebsite(website);
+  const org = await getOrganization(organizationId);
+  if (!org) throw new Error("Company not found");
 
-  const [c] = await db
-    .insert(company)
-    .values({ organizationId, name: cleanName, website: site })
-    .returning({ id: company.id });
-
-  // Best-effort: study the website and draft a description.
-  const description = await generateCompanyDescription(cleanName, site);
-  if (description) {
-    await db
-      .update(company)
-      .set({ descriptionMd: description })
-      .where(eq(company.id, c.id));
-  }
-
-  revalidatePath("/app");
-  return { id: c.id, generated: Boolean(description) };
-}
-
-export async function updateCompany(
-  id: string,
-  data: { name?: string; website?: string | null; descriptionMd?: string },
-) {
-  const { user } = await requireUserAndOrg();
-  const owned = await getOwnedCompany(id, user.id);
-  if (!owned) throw new Error("Компания не найдена");
-
-  const patch: Partial<typeof company.$inferInsert> = {};
+  const patch: Partial<typeof organization.$inferInsert> = {};
   if (data.name !== undefined) {
-    patch.name = data.name.trim().slice(0, 120) || owned.name;
+    patch.name = data.name.trim().slice(0, 120) || org.name;
   }
   if (data.website !== undefined) patch.website = cleanWebsite(data.website);
   if (data.descriptionMd !== undefined) {
     patch.descriptionMd = data.descriptionMd.trim() || null;
   }
+  if (data.logo !== undefined) patch.logo = data.logo?.trim() || null;
 
-  await db.update(company).set(patch).where(eq(company.id, id));
+  await db.update(organization).set(patch).where(eq(organization.id, organizationId));
   revalidatePath("/app");
 }
 
-export async function regenerateCompanyDescription(id: string) {
-  const { user } = await requireUserAndOrg();
-  const owned = await getOwnedCompany(id, user.id);
-  if (!owned) throw new Error("Компания не найдена");
+export async function regenerateCompanyDescription() {
+  const { organizationId } = await requireUserAndOrg();
+  const org = await getOrganization(organizationId);
+  if (!org) throw new Error("Company not found");
 
-  const description = await generateCompanyDescription(owned.name, owned.website);
+  const description = await generateCompanyDescription(org.name, org.website);
   if (description) {
     await db
-      .update(company)
+      .update(organization)
       .set({ descriptionMd: description })
-      .where(eq(company.id, id));
+      .where(eq(organization.id, organizationId));
   }
   revalidatePath("/app");
   return { ok: Boolean(description), description };
 }
 
-export async function deleteCompany(id: string) {
-  const { user } = await requireUserAndOrg();
-  const owned = await getOwnedCompany(id, user.id);
-  if (!owned) throw new Error("Компания не найдена");
-  await db.delete(company).where(eq(company.id, id));
+/** Uploads a company logo (multipart form, field "file") to R2 and points the
+ * active organization's logo at the public logo route. */
+export async function uploadCompanyLogo(formData: FormData) {
+  const { organizationId } = await requireUserAndOrg();
+  const file = formData.get("file");
+  if (!(file instanceof Blob) || file.size === 0) {
+    throw new Error("Choose an image file");
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    throw new Error("Logo must be under 2 MB");
+  }
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Logo must be an image");
+  }
+
+  const buf = Buffer.from(await file.arrayBuffer());
+  await saveObject(logoKey(organizationId), buf, file.type);
+  const logo = logoUrl(organizationId);
+  await db
+    .update(organization)
+    .set({ logo })
+    .where(eq(organization.id, organizationId));
   revalidatePath("/app");
-  redirect("/app");
+  return { logo };
+}
+
+/** Called right after a new company (org) is created client-side: stores the
+ * website, generates the description, and tries to discover the logo on the
+ * site when none was uploaded. Operates on the active organization. */
+export async function setupCompany(website: string | null) {
+  const { organizationId } = await requireUserAndOrg();
+  const org = await getOrganization(organizationId);
+  if (!org) return;
+
+  const site = cleanWebsite(website);
+  const description = site
+    ? await generateCompanyDescription(org.name, site)
+    : null;
+
+  // Re-read: an uploaded logo may have landed while the description generated.
+  const fresh = await getOrganization(organizationId);
+  const logo =
+    !fresh?.logo && site ? await fetchAndStoreLogo(organizationId, site) : null;
+
+  await db
+    .update(organization)
+    .set({
+      website: site,
+      descriptionMd: description ?? org.descriptionMd,
+      ...(logo ? { logo } : {}),
+    })
+    .where(eq(organization.id, organizationId));
+  revalidatePath("/app");
 }

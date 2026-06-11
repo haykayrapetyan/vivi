@@ -54,22 +54,22 @@ const brandWrap = (inner: string) => `
       ${inner}
     </div>
     <div style="max-width:440px;margin:16px auto 0;text-align:center;color:#6b6f76;font-size:12px;">
-      Vivi — AI-рекрутинг с видеоинтервью
+      Vivi — AI recruiting with video interviews
     </div>
   </div>
 `;
 
 export async function sendMagicLinkEmail(to: string, url: string) {
   const html = brandWrap(`
-    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Нажмите кнопку ниже, чтобы войти в Vivi. Ссылка действует 5 минут.</p>
-    <a href="${url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Войти в Vivi</a>
-    <p style="margin:24px 0 0;font-size:12px;color:#8a8e96;line-height:1.5;">Если кнопка не работает, скопируйте ссылку:<br/><a href="${url}" style="color:#818cf8;word-break:break-all;">${url}</a></p>
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Click the button below to sign in to Vivi. The link is valid for 5 minutes.</p>
+    <a href="${url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Sign in to Vivi</a>
+    <p style="margin:24px 0 0;font-size:12px;color:#8a8e96;line-height:1.5;">If the button doesn't work, copy the link:<br/><a href="${url}" style="color:#818cf8;word-break:break-all;">${url}</a></p>
   `);
   await send({
     to,
-    subject: "Вход в Vivi",
+    subject: "Sign in to Vivi",
     html,
-    text: `Войдите в Vivi по ссылке (действует 5 минут):\n${url}`,
+    text: `Sign in to Vivi with this link (valid for 5 minutes):\n${url}`,
   });
 }
 
@@ -78,14 +78,37 @@ export async function sendOrgInvitationEmail(
   args: { orgName: string; inviterName: string; url: string },
 ) {
   const html = brandWrap(`
-    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;"><b>${args.inviterName}</b> приглашает вас в команду <b>${args.orgName}</b> в Vivi.</p>
-    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Принять приглашение</a>
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;"><b>${args.inviterName}</b> invited you to the <b>${args.orgName}</b> workspace on Vivi.</p>
+    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Accept invitation</a>
   `);
   await send({
     to,
-    subject: `Приглашение в команду ${args.orgName} — Vivi`,
+    subject: `Invitation to ${args.orgName} — Vivi`,
     html,
-    text: `${args.inviterName} приглашает вас в команду «${args.orgName}» в Vivi. Принять: ${args.url}`,
+    text: `${args.inviterName} invited you to the "${args.orgName}" workspace on Vivi. Accept: ${args.url}`,
+  });
+}
+
+export async function sendAgentReviewEmail(
+  to: string,
+  args: {
+    candidateName: string;
+    vacancyTitle: string;
+    aiScore: number | null;
+    url: string;
+  },
+) {
+  const score = args.aiScore != null ? ` Fit score: ${args.aiScore}/10.` : "";
+  const html = brandWrap(`
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Your AI recruiter reviewed <b>${args.candidateName}</b> for <b>${args.vacancyTitle}</b>.${score}</p>
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#a7abb3;">The full breakdown is waiting in the vacancy chat.</p>
+    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Read the review</a>
+  `);
+  await send({
+    to,
+    subject: `Agent reviewed ${args.candidateName} — ${args.vacancyTitle}`,
+    html,
+    text: `Your AI recruiter reviewed ${args.candidateName} for "${args.vacancyTitle}".${score} Read the breakdown: ${args.url}`,
   });
 }
 
@@ -94,13 +117,13 @@ export async function sendInterviewCompletedEmail(
   args: { candidateName: string; vacancyTitle: string; url: string },
 ) {
   const html = brandWrap(`
-    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;"><b>${args.candidateName}</b> завершил(а) видеоинтервью на вакансию <b>${args.vacancyTitle}</b>.</p>
-    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Посмотреть ответы</a>
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;"><b>${args.candidateName}</b> completed the video interview for <b>${args.vacancyTitle}</b>.</p>
+    <a href="${args.url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">View answers</a>
   `);
   await send({
     to,
-    subject: `Новое интервью: ${args.candidateName} — ${args.vacancyTitle}`,
+    subject: `New interview: ${args.candidateName} — ${args.vacancyTitle}`,
     html,
-    text: `${args.candidateName} завершил видеоинтервью на «${args.vacancyTitle}». Откройте: ${args.url}`,
+    text: `${args.candidateName} completed the video interview for "${args.vacancyTitle}". Open: ${args.url}`,
   });
 }

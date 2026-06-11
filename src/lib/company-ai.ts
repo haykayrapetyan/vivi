@@ -1,6 +1,7 @@
 import "server-only";
 import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { safeFetch } from "@/lib/safe-fetch";
 
 function hasOpenAI() {
   return Boolean(process.env.OPENAI_API_KEY);
@@ -20,30 +21,14 @@ export function normalizeUrl(input: string): string | null {
   }
 }
 
-function isBlockedHost(hostname: string): boolean {
-  return (
-    /^(localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.)/.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-    hostname === "::1" ||
-    hostname.endsWith(".local") ||
-    hostname.endsWith(".internal")
-  );
-}
-
 async function fetchWebsiteText(url: string): Promise<string | null> {
   try {
-    const parsed = new URL(url);
-    if (isBlockedHost(parsed.hostname)) return null;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    const res = await fetch(url, {
-      signal: controller.signal,
+    // safeFetch blocks private/internal destinations and re-validates every
+    // redirect hop (SSRF guard).
+    const res = await safeFetch(url, {
       headers: { "user-agent": "ViviBot/1.0 (+https://vivi.app)" },
-      redirect: "follow",
     });
-    clearTimeout(timer);
-    if (!res.ok) return null;
+    if (!res?.ok) return null;
 
     const html = await res.text();
     const text = html
@@ -72,17 +57,17 @@ export async function generateCompanyDescription(
   const url = website ? normalizeUrl(website) : null;
   const siteText = url ? await fetchWebsiteText(url) : null;
 
-  const prompt = `Составь краткое описание компании для использования в вакансиях. Пиши на русском, по-деловому, без воды.
+  const prompt = `Write a concise company description for use in job postings. Write in English, professional, no fluff.
 
-Название: ${name}
-${url ? `Сайт: ${url}` : ""}
+Name: ${name}
+${url ? `Website: ${url}` : ""}
 ${
   siteText
-    ? `Фрагмент содержимого сайта:\n${siteText}`
-    : "Содержимое сайта недоступно — опиши обобщённо по названию, без выдуманных фактов."
+    ? `Website content excerpt:\n${siteText}`
+    : "Website content is unavailable — describe it generally from the name, without inventing facts."
 }
 
-Сделай 2–4 коротких абзаца в Markdown: чем занимается компания, продукт/услуги, ценности и культура, чем привлекательна для кандидатов. Не выдумывай конкретные цифры, имена клиентов или факты, которых нет в источнике.`;
+Write 2–4 short Markdown paragraphs: what the company does, its product/services, values and culture, and why it's attractive to candidates. Don't invent specific numbers, client names, or facts not present in the source.`;
 
   try {
     const { text } = await generateText({

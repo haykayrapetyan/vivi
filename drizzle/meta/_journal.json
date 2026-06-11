@@ -36,6 +36,41 @@
       "when": 1780667870943,
       "tag": "0004_fluffy_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781022526910,
+      "tag": "0005_thin_bruce_banner",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781113919863,
+      "tag": "0006_stiff_flatman",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781115328021,
+      "tag": "0007_long_skaar",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781163401599,
+      "tag": "0008_far_lenny_balinger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781175290829,
+      "tag": "0009_stormy_bulldozer",
+      "breakpoints": true
     }
   ]
 }

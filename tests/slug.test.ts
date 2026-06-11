@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { slugify, buildPublicSlug } from "@/lib/slug";
 
 describe("slugify", () => {
-  it("transliterates Russian and lowercases", () => {
-    expect(slugify("Senior Frontend разработчик")).toBe(
-      "senior-frontend-razrabotchik",
+  it("lowercases and dashes a title", () => {
+    expect(slugify("Senior Frontend Developer")).toBe(
+      "senior-frontend-developer",
     );
   });
 
@@ -12,7 +12,7 @@ describe("slugify", () => {
     expect(slugify("  Hello,  World!!  ")).toBe("hello-world");
   });
 
-  it("falls back to 'vacancy' for empty/symbol-only input", () => {
+  it("falls back to 'vacancy' for empty/non-latin input", () => {
     expect(slugify("")).toBe("vacancy");
     expect(slugify("!!! ??? ")).toBe("vacancy");
   });
@@ -25,13 +25,13 @@ describe("slugify", () => {
 
 describe("buildPublicSlug", () => {
   it("appends a 6-char random suffix", () => {
-    const slug = buildPublicSlug("Менеджер по продажам");
-    expect(slug).toMatch(/^menedzher-po-prodazham-[a-z0-9]{6}$/);
+    const slug = buildPublicSlug("Sales Manager");
+    expect(slug).toMatch(/^sales-manager-[a-z0-9]{6}$/);
   });
 
   it("produces unique slugs for the same title", () => {
-    const a = buildPublicSlug("Дизайнер");
-    const b = buildPublicSlug("Дизайнер");
+    const a = buildPublicSlug("Designer");
+    const b = buildPublicSlug("Designer");
     expect(a).not.toBe(b);
   });
 });

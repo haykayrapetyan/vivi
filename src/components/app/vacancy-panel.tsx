@@ -3,8 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Archive,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   Check,
   Copy,
   ExternalLink,
@@ -12,6 +14,7 @@ import {
   Globe,
   ListChecks,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   Send,
@@ -22,17 +25,35 @@ import { toast } from "sonner";
 import {
   publishVacancy,
   replaceQuestions,
+  setVacancyOwner,
+  setVacancyStatus,
   unpublishVacancy,
   updateVacancyDescription,
 } from "@/app/app/actions";
 import type { VacancyDetails, VacancyStatus } from "@/lib/db/schema";
 import { useT } from "@/lib/i18n/client";
+import { vacancyParamRows } from "@/lib/vacancy-params";
+import { VacancyHighlights } from "@/components/vacancy-highlights";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { UserAvatar } from "@/components/app/user-avatar";
 import { CandidatesReview, type CandidateRow } from "./candidates-review";
+
+export type PanelMember = {
+  userId: string;
+  name: string;
+  email: string;
+  image: string | null;
+};
 
 export type PanelVacancy = {
   id: string;
@@ -41,6 +62,8 @@ export type PanelVacancy = {
   descriptionMd: string | null;
   publicSlug: string | null;
   details: VacancyDetails | null;
+  viewCount: number;
+  ownerId: string;
 };
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -49,28 +72,33 @@ export function VacancyPanel({
   vacancy,
   questions,
   candidates,
+  members,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
+  members: PanelMember[];
 }) {
   const t = useT();
 
   return (
     <div className="flex h-full flex-col">
       <Tabs defaultValue="vacancy" className="flex h-full flex-col gap-0">
-        <div className="border-b px-3 pt-3">
-          <TabsList className="bg-transparent p-0">
-            <TabsTrigger value="vacancy" className="gap-1.5">
+        <div className="border-b p-2.5">
+          <TabsList className="w-full">
+            <TabsTrigger value="vacancy" className="flex-1 gap-1.5">
               <FileText className="size-3.5" /> {t.panel.tabVacancy}
             </TabsTrigger>
-            <TabsTrigger value="candidates" className="gap-1.5">
+            <TabsTrigger value="candidates" className="flex-1 gap-1.5">
               <Users className="size-3.5" /> {t.panel.tabCandidates}
               {candidates.length > 0 && (
-                <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] tabular-nums">
+                <span className="rounded-full bg-background/70 px-1.5 text-[10px] tabular-nums">
                   {candidates.length}
                 </span>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex-1 gap-1.5">
+              <BarChart3 className="size-3.5" /> {t.analytics.tab}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -79,7 +107,7 @@ export function VacancyPanel({
           value="vacancy"
           className="min-h-0 flex-1 overflow-y-auto p-4"
         >
-          <VacancyTab vacancy={vacancy} questions={questions} />
+          <VacancyTab vacancy={vacancy} questions={questions} members={members} />
         </TabsContent>
 
         <TabsContent
@@ -87,6 +115,13 @@ export function VacancyPanel({
           className="min-h-0 flex-1 overflow-y-auto p-4"
         >
           <CandidatesReview candidates={candidates} questions={questions} />
+        </TabsContent>
+
+        <TabsContent
+          value="analytics"
+          className="min-h-0 flex-1 overflow-y-auto p-4"
+        >
+          <AnalyticsTab vacancy={vacancy} candidates={candidates} />
         </TabsContent>
       </Tabs>
     </div>
@@ -96,9 +131,11 @@ export function VacancyPanel({
 function VacancyTab({
   vacancy,
   questions,
+  members,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
+  members: PanelMember[];
 }) {
   const ready = Boolean(vacancy.descriptionMd) && questions.length > 0;
   const publicUrl = vacancy.publicSlug ? `${appUrl}/v/${vacancy.publicSlug}` : null;
@@ -107,7 +144,13 @@ function VacancyTab({
     <div className="space-y-6">
       <ShareCard vacancy={vacancy} ready={ready} publicUrl={publicUrl} />
 
-      {vacancy.details && <DetailsChips details={vacancy.details} />}
+      <OwnerRow
+        vacancyId={vacancy.id}
+        ownerId={vacancy.ownerId}
+        members={members}
+      />
+
+      {vacancy.details && <ParamsList details={vacancy.details} />}
 
       <EditableDescription
         vacancyId={vacancy.id}
@@ -338,8 +381,6 @@ function ShareCard({
   const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
 
-  const published = vacancy.status === "published" && publicUrl;
-
   function copy() {
     if (!publicUrl) return;
     navigator.clipboard.writeText(publicUrl);
@@ -348,7 +389,19 @@ function ShareCard({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  if (published) {
+  function transition(status: VacancyStatus, doneToast?: string) {
+    start(async () => {
+      try {
+        await setVacancyStatus(vacancy.id, status);
+        router.refresh();
+        if (doneToast) toast.success(doneToast);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t.panel.saveError);
+      }
+    });
+  }
+
+  if (vacancy.status === "published" && publicUrl) {
     return (
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
         <div className="mb-2 flex items-center gap-2 text-sm font-medium text-emerald-500">
@@ -374,7 +427,7 @@ function ShareCard({
             )}
           </button>
           <a
-            href={publicUrl!}
+            href={publicUrl}
             target="_blank"
             rel="noreferrer"
             className="text-muted-foreground hover:text-foreground"
@@ -383,14 +436,82 @@ function ShareCard({
             <ExternalLink className="size-4" />
           </a>
         </div>
+        <div className="mt-2 flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            disabled={pending}
+            onClick={() => transition("closed", t.panel.closedToast)}
+          >
+            <Lock className="size-3.5" />
+            {t.panel.closeBtn}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            disabled={pending}
+            onClick={() => start(() => unpublishVacancy(vacancy.id))}
+          >
+            {t.panel.unpublish}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (vacancy.status === "closed") {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-500">
+          <Lock className="size-4" />
+          {t.panel.closedTitle}
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">{t.panel.closedDesc}</p>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() => transition("published", t.panel.reopenedToast)}
+          >
+            {pending && <Loader2 className="size-4 animate-spin" />}
+            {t.panel.reopenBtn}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            disabled={pending}
+            onClick={() => transition("archived", t.panel.archivedToast)}
+          >
+            <Archive className="size-3.5" />
+            {t.panel.archiveBtn}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (vacancy.status === "archived") {
+    return (
+      <div className="rounded-xl border border-dashed bg-card/40 p-4">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Archive className="size-4" />
+          {t.panel.archivedTitle}
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t.panel.archivedDesc}
+        </p>
         <Button
-          variant="ghost"
           size="sm"
-          className="mt-2 text-muted-foreground"
+          variant="outline"
           disabled={pending}
-          onClick={() => start(() => unpublishVacancy(vacancy.id))}
+          onClick={() => transition("draft", t.panel.restoredToast)}
         >
-          {t.panel.unpublish}
+          {pending && <Loader2 className="size-4 animate-spin" />}
+          {t.panel.restoreBtn}
         </Button>
       </div>
     );
@@ -405,51 +526,222 @@ function ShareCard({
       <p className="mb-3 text-xs text-muted-foreground">
         {ready ? t.panel.publishReady : t.panel.publishNotReady}
       </p>
-      <Button
-        size="sm"
-        disabled={!ready || pending}
-        onClick={() =>
-          start(async () => {
-            try {
-              await publishVacancy(vacancy.id);
-              router.refresh();
-              toast.success(t.panel.publishedToast);
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : t.panel.publishError);
-            }
-          })
-        }
-      >
-        {pending && <Loader2 className="size-4 animate-spin" />}
-        {t.panel.publishBtn}
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          disabled={!ready || pending}
+          onClick={() =>
+            start(async () => {
+              try {
+                await publishVacancy(vacancy.id);
+                router.refresh();
+                toast.success(t.panel.publishedToast);
+              } catch (e) {
+                toast.error(
+                  e instanceof Error ? e.message : t.panel.publishError,
+                );
+              }
+            })
+          }
+        >
+          {pending && <Loader2 className="size-4 animate-spin" />}
+          {t.panel.publishBtn}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          disabled={pending}
+          onClick={() => transition("archived", t.panel.archivedToast)}
+        >
+          <Archive className="size-3.5" />
+          {t.panel.archiveBtn}
+        </Button>
+      </div>
     </div>
   );
 }
 
-function DetailsChips({ details }: { details: VacancyDetails }) {
-  const chips = [
-    details.company,
-    details.location,
-    details.employmentType,
-    details.seniority,
-    details.salaryRange,
-  ].filter(Boolean) as string[];
+function OwnerRow({
+  vacancyId,
+  ownerId,
+  members,
+}: {
+  vacancyId: string;
+  ownerId: string;
+  members: PanelMember[];
+}) {
+  const t = useT();
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const owner =
+    members.find((m) => m.userId === ownerId) ?? members[0] ?? null;
 
-  if (!chips.length && !details.skills?.length) return null;
+  function reassign(userId: string) {
+    if (userId === ownerId) return;
+    start(async () => {
+      try {
+        await setVacancyOwner(vacancyId, userId);
+        router.refresh();
+        toast.success(t.panel.ownerChanged);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t.panel.saveError);
+      }
+    });
+  }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {chips.map((c) => (
-        <Badge key={c} variant="secondary" className="font-normal">
-          {c}
-        </Badge>
-      ))}
-      {details.skills?.map((s) => (
-        <Badge key={s} variant="outline" className="font-normal">
-          {s}
-        </Badge>
-      ))}
+    <div className="flex items-center gap-2.5 rounded-xl border bg-card/50 px-3 py-2.5">
+      <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {t.panel.owner}
+      </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            disabled={pending || members.length === 0}
+            className="ml-auto flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-sm transition-colors hover:bg-accent disabled:opacity-60"
+          >
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <UserAvatar user={owner ?? {}} size="sm" />
+            )}
+            <span className="min-w-0 truncate">
+              {owner?.name || owner?.email || t.panel.ownerUnassigned}
+            </span>
+            <Pencil className="size-3 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {members.map((m) => (
+            <DropdownMenuItem
+              key={m.userId}
+              onSelect={() => reassign(m.userId)}
+            >
+              <UserAvatar user={m} size="sm" />
+              <span className="min-w-0 flex-1 truncate">
+                {m.name || m.email}
+              </span>
+              {m.userId === ownerId && <Check className="size-4" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+function ParamsList({ details }: { details: VacancyDetails }) {
+  const t = useT();
+  const rows = vacancyParamRows(details, t);
+
+  if (!rows.length && !details.skills?.length) return null;
+
+  return (
+    <div className="space-y-3">
+      <VacancyHighlights rows={rows} />
+      {details.skills && details.skills.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {details.skills.map((s) => (
+            <Badge key={s} variant="secondary" className="font-normal">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsTab({
+  vacancy,
+  candidates,
+}: {
+  vacancy: PanelVacancy;
+  candidates: CandidateRow[];
+}) {
+  const t = useT();
+  const views = vacancy.viewCount;
+  const applies = candidates.length;
+  const interviewed = candidates.filter((c) => c.answers.length > 0).length;
+  const completed = candidates.filter(
+    (c) =>
+      c.status === "completed" ||
+      c.status === "shortlisted" ||
+      c.status === "rejected",
+  ).length;
+  const shortlisted = candidates.filter(
+    (c) => c.status === "shortlisted",
+  ).length;
+
+  if (views === 0 && applies === 0) {
+    return (
+      <p className="rounded-lg border border-dashed bg-card/30 px-3 py-8 text-center text-xs text-muted-foreground">
+        {t.analytics.empty}
+      </p>
+    );
+  }
+
+  const steps = [
+    { label: t.analytics.views, value: views },
+    { label: t.analytics.applies, value: applies },
+    { label: t.analytics.interviewed, value: interviewed },
+    { label: t.analytics.completed, value: completed },
+    { label: t.analytics.shortlisted, value: shortlisted },
+  ];
+  const max = Math.max(views, applies, 1);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-2">
+        <Stat label={t.analytics.views} value={views} />
+        <Stat label={t.analytics.applies} value={applies} />
+        <Stat label={t.analytics.completed} value={completed} />
+        <Stat label={t.analytics.shortlisted} value={shortlisted} />
+      </div>
+
+      <div>
+        <h3 className="mb-2.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <BarChart3 className="size-3.5" /> {t.analytics.funnel}
+        </h3>
+        <div className="space-y-2">
+          {steps.map((s, i) => {
+            const prev = i === 0 ? null : steps[i - 1].value;
+            const conv =
+              prev && prev > 0 ? Math.round((s.value / prev) * 100) : null;
+            return (
+              <div key={s.label}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{s.label}</span>
+                  <span className="tabular-nums">
+                    <span className="font-medium">{s.value}</span>
+                    {conv !== null && (
+                      <span className="ml-1.5 text-muted-foreground">
+                        {conv}%
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.round((s.value / max) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border bg-card/50 p-3">
+      <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }

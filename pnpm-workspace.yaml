@@ -1,6 +1,10 @@
+packages:
+  - agent-worker
+
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+  - workerd
 
 overrides:
   # better-auth's kysely-adapter imports migrator constants from kysely's main

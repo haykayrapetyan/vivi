@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import { requireUser } from "@/lib/session";
 import {
   getAnswersByVacancy,
+  getOrgMembers,
   getOwnedVacancy,
   getVacancyCandidates,
   getVacancyMessages,
@@ -15,26 +16,36 @@ import type { CandidateRow } from "@/components/app/candidates-review";
 
 export default async function VacancyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ prompt?: string }>;
 }) {
   const { id } = await params;
+  const { prompt } = await searchParams;
   const user = await requireUser();
   const vacancy = await getOwnedVacancy(id, user.id);
   if (!vacancy) notFound();
 
-  const [messages, questions, candidates, answers] = await Promise.all([
+  const [messages, questions, candidates, answers, members] = await Promise.all([
     getVacancyMessages(id),
     getVacancyQuestions(id),
     getVacancyCandidates(id),
     getAnswersByVacancy(id),
+    vacancy.organizationId ? getOrgMembers(vacancy.organizationId) : [],
   ]);
 
   const initialMessages: UIMessage[] = messages.map((m) => ({
     id: m.id,
     role: m.role === "assistant" ? "assistant" : "user",
     parts: [{ type: "text", text: m.content }],
+    metadata: { source: m.source, createdAt: m.createdAt.toISOString() },
   }));
+
+  // Where live polling for autonomous agent messages picks up.
+  const syncFrom = (
+    messages[messages.length - 1]?.createdAt ?? new Date()
+  ).toISOString();
 
   const answersByCandidate = new Map<string, CandidateRow["answers"]>();
   for (const a of answers) {
@@ -68,8 +79,16 @@ export default async function VacancyPage({
     descriptionMd: vacancy.descriptionMd,
     publicSlug: vacancy.publicSlug,
     details: vacancy.details,
+    viewCount: vacancy.viewCount,
+    ownerId: vacancy.userId,
   };
   const panelQuestions = questions.map((q) => ({ id: q.id, text: q.text }));
+  const panelMembers = members.map((m) => ({
+    userId: m.userId,
+    name: m.name,
+    email: m.email,
+    image: m.image,
+  }));
 
   return (
     <div className="flex h-full min-w-0">
@@ -82,10 +101,16 @@ export default async function VacancyPage({
             vacancy={panelVacancy}
             questions={panelQuestions}
             candidates={candidateRows}
+            members={panelMembers}
           />
         </header>
         <div className="min-h-0 flex-1">
-          <VacancyChat vacancyId={id} initialMessages={initialMessages} />
+          <VacancyChat
+            vacancyId={id}
+            initialMessages={initialMessages}
+            initialPrompt={prompt}
+            syncFrom={syncFrom}
+          />
         </div>
       </section>
 
@@ -94,6 +119,7 @@ export default async function VacancyPage({
           vacancy={panelVacancy}
           questions={panelQuestions}
           candidates={candidateRows}
+          members={panelMembers}
         />
       </aside>
     </div>
