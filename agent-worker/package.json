@@ -1,0 +1,23 @@
+{
+  "name": "vivi-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.67",
+    "agents": "^0.15.0",
+    "ai": "^6.0.195",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260611.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.99.0"
+  }
+}

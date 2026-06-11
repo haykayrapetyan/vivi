@@ -1,0 +1,21 @@
+// Vivi's per-vacancy recruiter agent — Cloudflare Agents SDK on Durable
+// Objects. One VacancyAgent instance per vacancy (named by vacancyId).
+//
+// Local dev:  pnpm dev  (port 8787; reads .dev.vars)
+// Deploy:     pnpm deploy  +  wrangler secret put AGENT_GATEWAY_SECRET / OPENAI_API_KEY
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vivi-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "VacancyAgent", "class_name": "VacancyAgent" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["VacancyAgent"] }
+  ],
+  "observability": { "enabled": true }
+}

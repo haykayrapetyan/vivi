@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local development (gitignored).
+APP_BASE_URL=http://localhost:3000
+AGENT_GATEWAY_SECRET=dev-agent-secret
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
