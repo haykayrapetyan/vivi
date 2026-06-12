@@ -59,17 +59,17 @@ const brandWrap = (inner: string) => `
   </div>
 `;
 
-export async function sendMagicLinkEmail(to: string, url: string) {
+export async function sendOtpEmail(to: string, otp: string) {
   const html = brandWrap(`
-    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Click the button below to sign in to Vivi. The link is valid for 5 minutes.</p>
-    <a href="${url}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px;font-weight:500;">Sign in to Vivi</a>
-    <p style="margin:24px 0 0;font-size:12px;color:#8a8e96;line-height:1.5;">If the button doesn't work, copy the link:<br/><a href="${url}" style="color:#818cf8;word-break:break-all;">${url}</a></p>
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.5;">Your Vivi sign-in code. It's valid for 5 minutes.</p>
+    <div style="display:inline-block;background:#0f1014;border:1px solid #26282f;border-radius:10px;padding:14px 24px;font-size:28px;font-weight:600;letter-spacing:0.3em;color:#fff;">${otp}</div>
+    <p style="margin:24px 0 0;font-size:12px;color:#8a8e96;line-height:1.5;">If you didn't request this code, you can safely ignore this email.</p>
   `);
   await send({
     to,
-    subject: "Sign in to Vivi",
+    subject: `${otp} — your Vivi sign-in code`,
     html,
-    text: `Sign in to Vivi with this link (valid for 5 minutes):\n${url}`,
+    text: `Your Vivi sign-in code: ${otp}\nIt's valid for 5 minutes.`,
   });
 }
 

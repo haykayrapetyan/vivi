@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { ArrowRight, MessagesSquare, Share2, Video } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Logo } from "@/components/logo";
 import { LandingHero } from "@/components/landing-hero";
+import { LandingSteps } from "@/components/landing-steps";
 import { getSession } from "@/lib/session";
 import { getServerDictionary } from "@/lib/i18n/server";
 
@@ -19,7 +21,8 @@ export default async function Home() {
       />
 
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-        <span className="text-lg font-semibold tracking-tight">Vivi</span>
+        <Logo />
+        <span className="sr-only">Vivi</span>
         <nav className="flex items-center gap-1.5">
           <ThemeToggle />
           {session?.user ? (
@@ -41,59 +44,33 @@ export default async function Home() {
         </nav>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center px-6 pt-20 text-center">
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-card/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
-          <span className="size-1.5 rounded-full bg-primary" />
-          {t.landing.badge}
-        </div>
-
-        <h1 className="max-w-3xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
-          {t.landing.heroTitle}
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center px-6 pt-28 text-center">
+        <h1 className="max-w-4xl text-balance text-6xl font-semibold leading-[1.02] tracking-tight sm:text-7xl">
+          {t.landing.heroTitle1}{" "}
+          <span className="bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 bg-clip-text text-transparent">
+            {t.landing.heroTitle2}
+          </span>
         </h1>
-        <p className="mt-5 max-w-xl text-balance text-lg text-muted-foreground">
+        <p className="mt-6 max-w-lg text-balance text-lg leading-relaxed text-muted-foreground">
           {t.landing.heroSubtitle}
         </p>
 
         <LandingHero isLoggedIn={isLoggedIn} />
 
-        <div className="mt-20 grid w-full max-w-4xl gap-4 pb-24 text-left sm:grid-cols-3">
-          <Feature
-            icon={<MessagesSquare className="size-5" />}
-            title={t.landing.f1Title}
-            text={t.landing.f1Text}
-          />
-          <Feature
-            icon={<Share2 className="size-5" />}
-            title={t.landing.f2Title}
-            text={t.landing.f2Text}
-          />
-          <Feature
-            icon={<Video className="size-5" />}
-            title={t.landing.f3Title}
-            text={t.landing.f3Text}
+        <div className="mt-24 w-full max-w-5xl pb-24 text-left">
+          <h2 className="mb-8 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            {t.landing.howTitle}
+          </h2>
+          <LandingSteps
+            steps={[
+              { title: t.landing.step1Title, text: t.landing.step1Text },
+              { title: t.landing.step2Title, text: t.landing.step2Text },
+              { title: t.landing.step3Title, text: t.landing.step3Text },
+              { title: t.landing.step4Title, text: t.landing.step4Text },
+            ]}
           />
         </div>
       </main>
-    </div>
-  );
-}
-
-function Feature({
-  icon,
-  title,
-  text,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  text: string;
-}) {
-  return (
-    <div className="rounded-xl border bg-card/50 p-5">
-      <div className="mb-3 flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        {icon}
-      </div>
-      <h3 className="mb-1 text-sm font-medium">{title}</h3>
-      <p className="text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }

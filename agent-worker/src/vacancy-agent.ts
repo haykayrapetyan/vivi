@@ -4,6 +4,10 @@
 // self-managed schedule. It wakes on events from the app (candidate completed,
 // vacancy published) and on its own cron heartbeat, thinks with the LLM, and
 // acts through the Next.js gateway.
+//
+// Idempotency: Postgres agent_task (via the gateway) is the single source of
+// truth shared with the app's inline fallback; DO state keeps a local cache
+// so repeat events short-circuit without a context fetch.
 
 import { Agent } from "agents";
 import { generateText, stepCountIs, tool } from "ai";
@@ -16,16 +20,27 @@ import {
   buildScreeningPrompt,
 } from "../../src/lib/agent/prompt";
 import { kickoffKey, screenKey } from "../../src/lib/agent/keys";
-import { daysWaiting, findStuckCandidates } from "../../src/lib/agent/stuck";
-import type { VacancyContext } from "../../src/lib/agent/gateway-types";
-import { Gateway } from "./gateway";
+import {
+  daysWaiting,
+  findStuckCandidates,
+  pickUnscreened,
+} from "../../src/lib/agent/stuck";
+import type {
+  RunReport,
+  VacancyContext,
+} from "../../src/lib/agent/gateway-types";
+import { Gateway, GatewayError } from "./gateway";
 import type { Env } from "./types";
 
 /** Weekdays 14:00 UTC ≈ morning for US recruiters. */
 const HEARTBEAT_CRON = "0 14 * * 1-5";
+/** Max catch-up screenings per heartbeat (bounds LLM cost). */
+const SWEEP_LIMIT = 3;
+/** Output cap per LLM call. */
+const MAX_OUTPUT_TOKENS = 900;
 
 type AgentState = {
-  /** Idempotency ledger: units of work that already happened. */
+  /** Local cache of the Postgres agent_task ledger. */
   doneTasks: string[];
   /** When the last periodic review ran (ISO). */
   lastReviewAt: string | null;
@@ -45,16 +60,36 @@ export class VacancyAgent extends Agent<Env, AgentState> {
     return openai(this.env.OPENAI_MODEL ?? "gpt-4o");
   }
 
-  private taskDone(key: string) {
-    return this.state.doneTasks.includes(key);
+  /** Checked against the local cache AND the Postgres ledger in `ctx`. */
+  private taskDone(key: string, ctx?: VacancyContext) {
+    return (
+      this.state.doneTasks.includes(key) ||
+      Boolean(ctx?.doneTaskKeys.includes(key))
+    );
   }
 
-  private recordTask(key: string) {
-    if (this.taskDone(key)) return;
-    this.setState({
-      ...this.state,
-      doneTasks: [...this.state.doneTasks, key],
-    });
+  /** Records the unit of work in Postgres (shared ledger) + local cache. */
+  private async recordTask(key: string) {
+    try {
+      await this.gateway().recordTask(this.name, key);
+    } catch (e) {
+      console.error("[VacancyAgent] recordTask failed:", e);
+    }
+    if (!this.state.doneTasks.includes(key)) {
+      this.setState({
+        ...this.state,
+        doneTasks: [...this.state.doneTasks, key],
+      });
+    }
+  }
+
+  /** Audit log in Postgres — best-effort, never fails the run. */
+  private async report(report: RunReport) {
+    try {
+      await this.gateway().reportRun(this.name, report);
+    } catch (e) {
+      console.error("[VacancyAgent] reportRun failed:", e);
+    }
   }
 
   /** Keeps the recurring pool-review alarm alive (deduped by the SDK). */
@@ -74,6 +109,43 @@ export class VacancyAgent extends Agent<Env, AgentState> {
     });
   }
 
+  /** Posts to the vacancy chat AND pushes to connected browsers instantly. */
+  private async post(content: string) {
+    const { message } = await this.gateway().postMessage(this.name, content);
+    try {
+      this.broadcast(JSON.stringify({ type: "agent_message", message }));
+    } catch {
+      // No listeners / serialization hiccup — the chat polling still catches up.
+    }
+  }
+
+  /** Presence for the app UI (read via the worker's /status route). */
+  async getStatus(): Promise<{
+    lastReviewAt: string | null;
+    screenedCount: number;
+    nextHeartbeatAt: string | null;
+  }> {
+    let nextHeartbeatAt: string | null = null;
+    try {
+      const schedules = this.getSchedules();
+      const hb = schedules.find((s) => s.callback === "heartbeat");
+      if (hb?.time) {
+        // schedule.time is unix seconds.
+        const ms = hb.time > 1e12 ? hb.time : hb.time * 1000;
+        nextHeartbeatAt = new Date(ms).toISOString();
+      }
+    } catch {
+      // schedules unavailable — presence stays partial
+    }
+    return {
+      lastReviewAt: this.state.lastReviewAt,
+      screenedCount: this.state.doneTasks.filter((k) =>
+        k.startsWith("screen:"),
+      ).length,
+      nextHeartbeatAt,
+    };
+  }
+
   /* ------------------------------- events ------------------------------- */
 
   /**
@@ -88,12 +160,36 @@ export class VacancyAgent extends Agent<Env, AgentState> {
 
     const gw = this.gateway();
     const ctx = await gw.getContext(this.name);
+    if (this.taskDone(key, ctx)) {
+      return { ok: true, skipped: "already screened (ledger)" };
+    }
     // The agent lives and dies with the vacancy lifecycle.
     if (ctx.status !== "published") {
       return { ok: true, skipped: `vacancy is ${ctx.status}` };
     }
     await this.ensureHeartbeat();
 
+    try {
+      await this.screen(ctx, candidateId);
+      await this.report({
+        trigger: "candidate_completed",
+        status: "done",
+        summary: `Screened candidate ${candidateId}`,
+      });
+      return { ok: true };
+    } catch (e) {
+      await this.report({
+        trigger: "candidate_completed",
+        status: "failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw e; // 500 → the app falls back to the inline run
+    }
+  }
+
+  /** The screening unit itself — also reused by the heartbeat catch-up sweep. */
+  private async screen(ctx: VacancyContext, candidateId: string) {
+    const gw = this.gateway();
     // Transcription + structured evaluation run app-side (R2 + Whisper).
     const detail = await gw.evaluateCandidate(this.name, candidateId);
 
@@ -102,6 +198,7 @@ export class VacancyAgent extends Agent<Env, AgentState> {
       const { text } = await generateText({
         model: this.model(),
         system: this.systemPrompt(ctx),
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         prompt: buildScreeningPrompt({
           candidateName: detail.name,
           answers: detail.answers,
@@ -118,7 +215,7 @@ export class VacancyAgent extends Agent<Env, AgentState> {
         }),
       });
       if (text.trim()) {
-        await gw.postMessage(this.name, text.trim());
+        await this.post(text.trim());
         posted = true;
       }
     }
@@ -129,8 +226,7 @@ export class VacancyAgent extends Agent<Env, AgentState> {
       kind: posted ? "agent" : "completed",
     });
 
-    this.recordTask(key);
-    return { ok: true };
+    await this.recordTask(screenKey(candidateId));
   }
 
   /**
@@ -146,41 +242,75 @@ export class VacancyAgent extends Agent<Env, AgentState> {
     await this.ensureHeartbeat();
 
     const key = kickoffKey(this.name);
-    if (this.taskDone(key)) return { ok: true, skipped: "kickoff already posted" };
+    if (this.taskDone(key, ctx)) {
+      return { ok: true, skipped: "kickoff already posted" };
+    }
     if (!this.env.OPENAI_API_KEY) return { ok: true, skipped: "no model" };
 
-    const { text } = await generateText({
-      model: this.model(),
-      system: this.systemPrompt(ctx),
-      prompt: buildCyclePrompt({
+    try {
+      const { text } = await generateText({
+        model: this.model(),
+        system: this.systemPrompt(ctx),
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        prompt: buildCyclePrompt({
+          trigger: "published",
+          vacancyTitle: ctx.title,
+          pool: [],
+          completedSinceLastRun: [],
+          stuck: [],
+          lastRunAt: null,
+        }),
+      });
+      if (text.trim()) await this.post(text.trim());
+      await this.recordTask(key);
+      await this.report({
         trigger: "published",
-        vacancyTitle: ctx.title,
-        pool: [],
-        completedSinceLastRun: [],
-        stuck: [],
-        lastRunAt: null,
-      }),
-    });
-    if (text.trim()) await gw.postMessage(this.name, text.trim());
-
-    this.recordTask(key);
-    return { ok: true };
+        status: "done",
+        summary: "Posted kickoff introduction",
+      });
+      return { ok: true };
+    } catch (e) {
+      await this.report({
+        trigger: "published",
+        status: "failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
   }
 
   /* ----------------------------- heartbeat ------------------------------ */
 
   /**
-   * Cron-scheduled periodic pool review. Quiet rule: posts nothing when the
-   * model answers NO_UPDATE. Never throws — a failed review just waits for
-   * the next tick.
+   * Cron-scheduled periodic pool review. First sweeps completed-but-never-
+   * screened candidates (lost events), then reviews the pool. Deterministic
+   * short-circuit keeps quiet days free; the LLM's NO_UPDATE rule covers the
+   * rest. Never throws — a failed review waits for the next tick.
    */
   async heartbeat(): Promise<void> {
     try {
       const gw = this.gateway();
-      const ctx = await gw.getContext(this.name);
+      let ctx = await gw.getContext(this.name);
       if (ctx.status !== "published" || !this.env.OPENAI_API_KEY) return;
 
       const now = new Date();
+
+      // Catch-up sweep: screenings that never happened (at-least-once).
+      const localDone = this.state.doneTasks;
+      const ledger = [...new Set([...ctx.doneTaskKeys, ...localDone])];
+      const unscreened = pickUnscreened(ctx.pool, ledger, screenKey, SWEEP_LIMIT);
+      for (const cand of unscreened) {
+        try {
+          await this.screen(ctx, cand.id);
+        } catch (e) {
+          console.error("[VacancyAgent] sweep screening failed:", e);
+        }
+      }
+      if (unscreened.length) {
+        // Pool data changed (fresh evaluations) — re-fetch before the review.
+        ctx = await gw.getContext(this.name);
+      }
+
       const rows = ctx.pool.map((p) => ({
         name: p.name,
         status: p.status,
@@ -197,9 +327,22 @@ export class VacancyAgent extends Agent<Env, AgentState> {
         )
         .map((p) => p.name);
 
+      // Deterministic short-circuit: no new interviews, nobody stalled,
+      // nothing swept — don't even wake the model.
+      if (!completedSince.length && !stuck.length && !unscreened.length) {
+        this.setState({ ...this.state, lastReviewAt: now.toISOString() });
+        await this.report({
+          trigger: "schedule",
+          status: "skipped",
+          summary: "Nothing new since the last review — stayed quiet",
+        });
+        return;
+      }
+
       const { text } = await generateText({
         model: this.model(),
         system: this.systemPrompt(ctx),
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         prompt: buildCyclePrompt({
           trigger: "schedule",
           vacancyTitle: ctx.title,
@@ -236,12 +379,31 @@ export class VacancyAgent extends Agent<Env, AgentState> {
       });
 
       const out = text.trim();
-      if (out && !out.startsWith(NO_UPDATE)) {
-        await gw.postMessage(this.name, out);
-      }
+      const quiet = !out || out.startsWith(NO_UPDATE);
+      if (!quiet) await this.post(out);
       this.setState({ ...this.state, lastReviewAt: now.toISOString() });
+      await this.report({
+        trigger: "schedule",
+        status: quiet ? "skipped" : "done",
+        summary: quiet
+          ? "Reviewed the pool — no update worth posting"
+          : `Posted periodic review (${ctx.pool.length} candidates, ${stuck.length} stalled, ${unscreened.length} swept)`,
+      });
     } catch (e) {
+      // The vacancy is gone (deleted) — stop ticking forever.
+      if (e instanceof GatewayError && e.status === 404) {
+        for (const s of this.getSchedules()) {
+          if (s.callback === "heartbeat") await this.cancelSchedule(s.id);
+        }
+        console.warn("[VacancyAgent] vacancy gone — heartbeat cancelled");
+        return;
+      }
       console.error("[VacancyAgent] heartbeat failed:", e);
+      await this.report({
+        trigger: "schedule",
+        status: "failed",
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 }

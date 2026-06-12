@@ -15,6 +15,7 @@ import {
   type PanelVacancy,
   type PanelMember,
 } from "./vacancy-panel";
+import type { AgentCardData } from "./agent-card";
 import type { CandidateRow } from "./candidates-review";
 
 export function VacancyPanelSheet({
@@ -22,11 +23,13 @@ export function VacancyPanelSheet({
   questions,
   candidates,
   members,
+  agent,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
   members: PanelMember[];
+  agent: AgentCardData;
 }) {
   const t = useT();
   return (
@@ -58,6 +61,7 @@ export function VacancyPanelSheet({
             questions={questions}
             candidates={candidates}
             members={members}
+            agent={agent}
           />
         </div>
       </SheetContent>

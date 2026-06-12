@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { magicLink, organization as organizationPlugin } from "better-auth/plugins";
+import { emailOTP, organization as organizationPlugin } from "better-auth/plugins";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -13,7 +13,7 @@ import {
   member,
   invitation,
 } from "@/lib/db/schema";
-import { sendMagicLinkEmail, sendOrgInvitationEmail } from "@/lib/email";
+import { sendOtpEmail, sendOrgInvitationEmail } from "@/lib/email";
 import { slugify } from "@/lib/slug";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -68,10 +68,11 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    magicLink({
+    emailOTP({
+      otpLength: 5,
       expiresIn: 60 * 5,
-      sendMagicLink: async ({ email, url }) => {
-        await sendMagicLinkEmail(email, url);
+      sendVerificationOTP: async ({ email, otp }) => {
+        await sendOtpEmail(email, otp);
       },
     }),
     organizationPlugin({

@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { organization } from "@/lib/db/schema";
 import { requireUserAndOrg } from "@/lib/session";
 import { getOrganization } from "@/lib/data";
-import { generateCompanyDescription, normalizeUrl } from "@/lib/company-ai";
+import { normalizeUrl } from "@/lib/company-ai";
 import { fetchAndStoreLogo, logoKey, logoUrl } from "@/lib/logo";
 import { saveObject } from "@/lib/storage";
 
@@ -44,22 +44,6 @@ export async function updateCompany(data: {
   revalidatePath("/app");
 }
 
-export async function regenerateCompanyDescription() {
-  const { organizationId } = await requireUserAndOrg();
-  const org = await getOrganization(organizationId);
-  if (!org) throw new Error("Company not found");
-
-  const description = await generateCompanyDescription(org.name, org.website);
-  if (description) {
-    await db
-      .update(organization)
-      .set({ descriptionMd: description })
-      .where(eq(organization.id, organizationId));
-  }
-  revalidatePath("/app");
-  return { ok: Boolean(description), description };
-}
-
 /** Uploads a company logo (multipart form, field "file") to R2 and points the
  * active organization's logo at the public logo route. */
 export async function uploadCompanyLogo(formData: FormData) {
@@ -87,30 +71,22 @@ export async function uploadCompanyLogo(formData: FormData) {
 }
 
 /** Called right after a new company (org) is created client-side: stores the
- * website, generates the description, and tries to discover the logo on the
- * site when none was uploaded. Operates on the active organization. */
+ * website and tries to discover the logo on the site when none was uploaded.
+ * No AI description is generated — the recruiter writes a short optional one,
+ * and the vacancy agent reads the live website when it builds a vacancy.
+ * Operates on the active organization. */
 export async function setupCompany(website: string | null) {
   const { organizationId } = await requireUserAndOrg();
   const org = await getOrganization(organizationId);
   if (!org) return;
 
   const site = cleanWebsite(website);
-  const description = site
-    ? await generateCompanyDescription(org.name, site)
-    : null;
-
-  // Re-read: an uploaded logo may have landed while the description generated.
-  const fresh = await getOrganization(organizationId);
   const logo =
-    !fresh?.logo && site ? await fetchAndStoreLogo(organizationId, site) : null;
+    !org.logo && site ? await fetchAndStoreLogo(organizationId, site) : null;
 
   await db
     .update(organization)
-    .set({
-      website: site,
-      descriptionMd: description ?? org.descriptionMd,
-      ...(logo ? { logo } : {}),
-    })
+    .set({ website: site, ...(logo ? { logo } : {}) })
     .where(eq(organization.id, organizationId));
   revalidatePath("/app");
 }

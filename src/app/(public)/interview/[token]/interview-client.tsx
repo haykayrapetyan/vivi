@@ -101,8 +101,55 @@ export function InterviewClient({
     }
   }
 
+  // One-time avatar: a frame from the live camera when recording first starts.
+  const avatarSentRef = useRef(false);
+  function captureAvatar() {
+    if (avatarSentRef.current) return;
+    const video = liveRef.current;
+    if (!video || video.videoWidth === 0) return;
+    avatarSentRef.current = true;
+    try {
+      const size = 320;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      // Center-crop the frame to a square.
+      const side = Math.min(video.videoWidth, video.videoHeight);
+      ctx.drawImage(
+        video,
+        (video.videoWidth - side) / 2,
+        (video.videoHeight - side) / 2,
+        side,
+        side,
+        0,
+        0,
+        size,
+        size,
+      );
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return;
+          const form = new FormData();
+          form.append("image", blob, "avatar.jpg");
+          // Best-effort — never block the interview over the avatar.
+          void fetch(`/api/interview/${token}/avatar`, {
+            method: "POST",
+            body: form,
+          }).catch(() => {});
+        },
+        "image/jpeg",
+        0.85,
+      );
+    } catch {
+      // Canvas hiccup — skip the avatar silently.
+    }
+  }
+
   function startRecording() {
     if (!streamRef.current) return;
+    captureAvatar();
     chunksRef.current = [];
     const mime = pickMimeType();
     const rec = new MediaRecorder(

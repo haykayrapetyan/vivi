@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, MailCheck, Sparkles } from "lucide-react";
-import { signIn } from "@/lib/auth-client";
+import { authClient, signIn } from "@/lib/auth-client";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
 import { isEmail } from "@/lib/validation";
 import { DRAFT_COOKIE } from "@/lib/draft";
+import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,13 +17,18 @@ import { FieldError } from "@/components/ui/field-error";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { toast } from "sonner";
 
+const OTP_LENGTH = 5;
+
 export default function LoginPage() {
   const t = useT();
+  const router = useRouter();
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const codeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Cookie is only readable after hydration; reflect it into the banner.
@@ -29,7 +36,7 @@ export default function LoginPage() {
     setHasDraft(new RegExp(`(?:^|; )${DRAFT_COOKIE}=`).test(document.cookie));
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSendCode(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) {
       setError(t.validation.emailRequired);
@@ -41,16 +48,65 @@ export default function LoginPage() {
     }
     setError(undefined);
     setLoading(true);
-    const { error } = await signIn.magicLink({
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
       email: email.trim(),
-      callbackURL: "/app",
+      type: "sign-in",
     });
     setLoading(false);
     if (error) {
       toast.error(error.message ?? t.auth.errorSend);
       return;
     }
+    setCode("");
     setSent(true);
+  }
+
+  async function verify(otp: string) {
+    setError(undefined);
+    setLoading(true);
+    const { error } = await signIn.emailOtp({ email: email.trim(), otp });
+    if (error) {
+      setLoading(false);
+      setCode("");
+      setError(t.auth.errorVerify);
+      codeRef.current?.focus();
+      return;
+    }
+    router.push("/app");
+  }
+
+  async function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (code.length !== OTP_LENGTH) {
+      setError(t.auth.errorVerify);
+      return;
+    }
+    await verify(code);
+  }
+
+  function handleCodeChange(value: string) {
+    const digits = value.replace(/\D/g, "").slice(0, OTP_LENGTH);
+    setCode(digits);
+    if (error) setError(undefined);
+    // Submit as soon as all digits are in — no extra click needed.
+    if (digits.length === OTP_LENGTH && !loading) void verify(digits);
+  }
+
+  async function handleResend() {
+    setLoading(true);
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
+      email: email.trim(),
+      type: "sign-in",
+    });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message ?? t.auth.errorSend);
+      return;
+    }
+    setCode("");
+    setError(undefined);
+    toast.success(t.auth.codeResent);
+    codeRef.current?.focus();
   }
 
   return (
@@ -69,8 +125,8 @@ export default function LoginPage() {
       </div>
 
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mb-2 text-2xl font-semibold tracking-tight">Vivi</div>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Logo className="mb-2" />
           <p className="text-sm text-muted-foreground">
             {t.common.brandSubtitle}
           </p>
@@ -84,7 +140,11 @@ export default function LoginPage() {
         )}
 
         {sent ? (
-          <div className="rounded-xl border bg-card p-8 text-center">
+          <form
+            onSubmit={handleVerify}
+            className="rounded-xl border bg-card p-8 text-center"
+            noValidate
+          >
             <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
               <MailCheck className="size-5" />
             </div>
@@ -94,17 +154,63 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">
               {interpolate(t.auth.checkEmailDesc, { email })}
             </p>
+            <div className="mt-5 space-y-2">
+              <Label htmlFor="otp" className="sr-only">
+                {t.auth.codeLabel}
+              </Label>
+              <Input
+                ref={codeRef}
+                id="otp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder={"•".repeat(OTP_LENGTH)}
+                value={code}
+                onChange={(e) => handleCodeChange(e.target.value)}
+                aria-invalid={!!error}
+                disabled={loading}
+                autoFocus
+                className="h-12 text-center font-mono text-xl tracking-[0.5em]"
+              />
+              <FieldError>{error}</FieldError>
+            </div>
             <Button
-              variant="ghost"
-              className="mt-5 text-sm"
-              onClick={() => setSent(false)}
+              type="submit"
+              className="mt-4 w-full"
+              disabled={loading || code.length !== OTP_LENGTH}
             >
-              {t.auth.useAnotherEmail}
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {t.auth.verifyCode}
             </Button>
-          </div>
+            <div className="mt-3 flex items-center justify-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={handleResend}
+                disabled={loading}
+              >
+                {t.auth.resendCode}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={() => {
+                  setSent(false);
+                  setCode("");
+                  setError(undefined);
+                }}
+                disabled={loading}
+              >
+                {t.auth.useAnotherEmail}
+              </Button>
+            </div>
+          </form>
         ) : (
           <form
-            onSubmit={handleSubmit}
+            onSubmit={handleSendCode}
             className="rounded-xl border bg-card p-8"
             noValidate
           >
@@ -132,7 +238,7 @@ export default function LoginPage() {
             </div>
             <Button type="submit" className="mt-5 w-full" disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
-              {t.auth.sendLink}
+              {t.auth.sendCode}
             </Button>
           </form>
         )}

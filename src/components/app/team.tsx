@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { setupCompany, uploadCompanyLogo } from "@/app/app/company-actions";
 import { useT } from "@/lib/i18n/client";
+import { cn } from "@/lib/utils";
 import { buildPublicSlug } from "@/lib/slug";
 import type { CompanyProfile } from "@/components/app/company-form";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,44 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 type Org = { id: string; name: string; role: string };
+
+/** Company icon: a direct logo URL if we have one, else the public media
+ * route (works for uploaded logos), else a letter tile. */
+function CompanyIcon({
+  org,
+  logoUrl,
+  className = "size-5 text-[10px] rounded",
+}: {
+  org: { id: string; name: string };
+  logoUrl?: string | null;
+  className?: string;
+}) {
+  // 0 = direct url, 1 = media route, 2 = letter fallback
+  const [step, setStep] = useState(logoUrl ? 0 : 1);
+  const src = step === 0 ? logoUrl! : `/api/media/logo/${org.id}`;
+
+  if (step < 2) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        onError={() => setStep((s) => s + 1)}
+        className={cn("shrink-0 bg-muted object-cover", className)}
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center bg-primary/15 font-semibold text-primary",
+        className,
+      )}
+    >
+      {org.name.slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
 
 export function OrgSwitcher({
   organizations,
@@ -60,17 +99,12 @@ export function OrgSwitcher({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-sidebar-accent/60">
-            {activeCompany.logo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={activeCompany.logo}
-                alt=""
-                className="size-7 shrink-0 rounded-md object-cover"
+            {active && (
+              <CompanyIcon
+                org={active}
+                logoUrl={activeCompany.logo}
+                className="size-7 rounded-md text-xs"
               />
-            ) : (
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-xs font-semibold text-primary">
-                {active?.name.slice(0, 1).toUpperCase()}
-              </span>
             )}
             <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
               {active?.name}
@@ -81,9 +115,7 @@ export function OrgSwitcher({
         <DropdownMenuContent align="start" className="w-[240px]">
           {organizations.map((o) => (
             <DropdownMenuItem key={o.id} onSelect={() => switchOrg(o.id)}>
-              <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold">
-                {o.name.slice(0, 1).toUpperCase()}
-              </span>
+              <CompanyIcon org={o} />
               <span className="min-w-0 flex-1 truncate">{o.name}</span>
               {o.id === activeOrganizationId && <Check className="size-4" />}
             </DropdownMenuItem>

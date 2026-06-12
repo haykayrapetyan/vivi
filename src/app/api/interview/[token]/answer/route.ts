@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { candidate, interviewAnswer, interviewQuestion } from "@/lib/db/schema";
@@ -68,9 +68,6 @@ export async function POST(
   const key = `answers/${cand.id}/${questionId}.${ext}`;
   await saveVideo(key, buffer, mimeType);
 
-  // Transcribe now (best-effort) so evaluation at completion is fast.
-  const transcript = await transcribeBuffer(buffer);
-
   // Upsert: one answer per (candidate, question).
   await db
     .delete(interviewAnswer)
@@ -80,14 +77,16 @@ export async function POST(
         eq(interviewAnswer.questionId, questionId),
       ),
     );
-  await db.insert(interviewAnswer).values({
-    candidateId: cand.id,
-    questionId,
-    videoPath: key,
-    mimeType,
-    durationSec,
-    transcript,
-  });
+  const [row] = await db
+    .insert(interviewAnswer)
+    .values({
+      candidateId: cand.id,
+      questionId,
+      videoPath: key,
+      mimeType,
+      durationSec,
+    })
+    .returning({ id: interviewAnswer.id });
 
   if (cand.status === "applied") {
     await db
@@ -95,6 +94,23 @@ export async function POST(
       .set({ status: "interviewing" })
       .where(eq(candidate.id, cand.id));
   }
+
+  // Whisper takes 5–20s per clip — run it AFTER the response so the candidate
+  // moves to the next question instantly. If this doesn't finish (crash,
+  // timeout), evaluation at completion backfills missing transcripts anyway.
+  after(async () => {
+    try {
+      const transcript = await transcribeBuffer(buffer);
+      if (transcript) {
+        await db
+          .update(interviewAnswer)
+          .set({ transcript })
+          .where(eq(interviewAnswer.id, row.id));
+      }
+    } catch (e) {
+      console.error("[answer] background transcription failed:", e);
+    }
+  });
 
   return NextResponse.json({ ok: true });
 }

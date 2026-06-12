@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   candidate,
+  candidateView,
+  chatRead,
   interviewQuestion,
   member,
   vacancy,
@@ -23,6 +25,7 @@ import {
 import { buildPublicSlug } from "@/lib/slug";
 import { evaluateCandidate } from "@/lib/ai-eval";
 import { dispatchAgentEvent } from "@/lib/agent/dispatch";
+import { setAgentInstructions } from "@/lib/agent/store";
 import { MAX_DRAFT_LEN } from "@/lib/draft";
 
 /** Ensures the current user owns the vacancy the candidate belongs to. */
@@ -233,6 +236,47 @@ export async function setVacancyStatus(id: string, status: VacancyStatus) {
       }
     });
   }
+}
+
+/** Moves the user's read cursor for a vacancy chat to now (clears the
+ * sidebar's unread-agent-messages badge). Called when the chat is open. */
+export async function markChatRead(vacancyId: string) {
+  const user = await requireUser();
+  const owned = await getOwnedVacancy(vacancyId, user.id);
+  if (!owned) return;
+  // Use Postgres now() (not JS new Date()): chat_message.created_at is written
+  // by the DB's now() into a `timestamp` (no tz) column, so a JS Date — sent
+  // as UTC — would land 4h behind here and the cursor would never catch up.
+  await db
+    .insert(chatRead)
+    .values({ userId: user.id, vacancyId, lastReadAt: sql`now()` })
+    .onConflictDoUpdate({
+      target: [chatRead.userId, chatRead.vacancyId],
+      set: { lastReadAt: sql`now()` },
+    });
+}
+
+/** Marks a candidate as seen by the current user (clears the "New" label). */
+export async function markCandidateSeen(candidateId: string) {
+  const user = await requireUser();
+  await requireOwnedCandidate(candidateId);
+  await db
+    .insert(candidateView)
+    .values({ userId: user.id, candidateId })
+    .onConflictDoNothing();
+}
+
+/** Standing instructions for the vacancy's autonomous agent (panel editor;
+ * the chat tool set_agent_instructions writes the same column). */
+export async function updateAgentInstructions(
+  vacancyId: string,
+  instructions: string,
+) {
+  const user = await requireUser();
+  const owned = await getOwnedVacancy(vacancyId, user.id);
+  if (!owned) throw new Error("Vacancy not found");
+  await setAgentInstructions(vacancyId, instructions);
+  revalidatePath(`/app/v/${vacancyId}`);
 }
 
 export async function updateVacancyDescription(

@@ -1,13 +1,18 @@
-// Worker entry: receives agent events from the Next.js app and routes them to
-// the right VacancyAgent instance (one Durable Object per vacancy).
+// Worker entry. Three surfaces:
+//  - POST /event   — agent events from the Next.js app (bearer secret)
+//  - GET  /status  — agent presence for the app UI (bearer secret)
+//  - /agents/*     — WebSocket from the recruiter's BROWSER for realtime
+//                    updates, authorized by a short-lived HMAC token the app
+//                    mints after its own org check.
 
-import { getAgentByName } from "agents";
+import { getAgentByName, routeAgentRequest } from "agents";
 import type { AgentEvent } from "../../src/lib/agent/gateway-types";
+import { verifySocketToken } from "../../src/lib/agent/socket-token";
 import type { Env } from "./types";
 
 export { VacancyAgent } from "./vacancy-agent";
 
-function authorized(request: Request, env: Env): boolean {
+function bearerAuthorized(request: Request, env: Env): boolean {
   if (!env.AGENT_GATEWAY_SECRET) return false;
   return (
     request.headers.get("authorization") ===
@@ -24,7 +29,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/event") {
-      if (!authorized(request, env)) {
+      if (!bearerAuthorized(request, env)) {
         return new Response("Unauthorized", { status: 401 });
       }
 
@@ -39,11 +44,44 @@ export default {
       }
 
       const agent = await getAgentByName(env.VacancyAgent, event.vacancyId);
-      const result =
-        event.type === "candidate_completed"
-          ? await agent.onCandidateCompleted(event.candidateId)
-          : await agent.onPublished();
+      let result: { ok: boolean; skipped?: string };
+      if (event.type === "candidate_completed") {
+        result = await agent.onCandidateCompleted(event.candidateId);
+      } else if (event.type === "review") {
+        await agent.heartbeat();
+        result = { ok: true };
+      } else {
+        result = await agent.onPublished();
+      }
       return Response.json(result);
+    }
+
+    if (request.method === "GET" && url.pathname === "/status") {
+      if (!bearerAuthorized(request, env)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const vacancyId = url.searchParams.get("vacancyId");
+      if (!vacancyId) return new Response("Bad request", { status: 400 });
+      const agent = await getAgentByName(env.VacancyAgent, vacancyId);
+      return Response.json(await agent.getStatus());
+    }
+
+    // Browser WebSocket: /agents/vacancy-agent/:vacancyId?token=…
+    // The token is scoped to ONE vacancy — verify it against the path name.
+    if (url.pathname.startsWith("/agents/")) {
+      const segments = url.pathname.split("/").filter(Boolean);
+      const instanceName = segments[2] ? decodeURIComponent(segments[2]) : "";
+      const ok =
+        Boolean(env.AGENT_GATEWAY_SECRET) &&
+        (await verifySocketToken(
+          env.AGENT_GATEWAY_SECRET,
+          instanceName,
+          url.searchParams.get("token"),
+        ));
+      if (!ok) return new Response("Unauthorized", { status: 401 });
+
+      const response = await routeAgentRequest(request, env);
+      if (response) return response;
     }
 
     return new Response("Not found", { status: 404 });

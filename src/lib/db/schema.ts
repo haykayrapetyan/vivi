@@ -8,6 +8,7 @@ import {
   integer,
   jsonb,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 const id = () =>
@@ -228,7 +229,11 @@ export const vacancyAgent = pgTable("vacancy_agent", {
     .$onUpdate(() => new Date()),
 });
 
-export type AgentTrigger = "candidate_completed" | "schedule" | "manual";
+export type AgentTrigger =
+  | "candidate_completed"
+  | "published"
+  | "schedule"
+  | "manual";
 export type AgentRunStatus = "running" | "done" | "failed" | "skipped";
 
 // Audit log: one row per agent wake-up.
@@ -314,6 +319,8 @@ export const candidate = pgTable(
     aiScore: integer("ai_score"),
     aiEvaluation: jsonb("ai_evaluation").$type<AiEvaluation>(),
     aiEvaluatedAt: timestamp("ai_evaluated_at"),
+    // R2 key of a frame captured from the interview video (the avatar)
+    avatarKey: text("avatar_key"),
     // token used by the candidate to access their interview page
     publicToken: text("public_token")
       .notNull()
@@ -327,6 +334,39 @@ export const candidate = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [index("candidate_vacancy_idx").on(t.vacancyId)],
+);
+
+/* --------------------------- read tracking ----------------------------- */
+
+// Per-user read cursor for a vacancy's chat (unread = agent messages newer
+// than lastReadAt). The chat is org-shared, so the cursor is per member.
+export const chatRead = pgTable(
+  "chat_read",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    vacancyId: text("vacancy_id")
+      .notNull()
+      .references(() => vacancy.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.vacancyId] })],
+);
+
+// Which candidates a member has opened (drives the "New" label + tab badge).
+export const candidateView = pgTable(
+  "candidate_view",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    candidateId: text("candidate_id")
+      .notNull()
+      .references(() => candidate.id, { onDelete: "cascade" }),
+    viewedAt: timestamp("viewed_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.candidateId] })],
 );
 
 export const interviewAnswer = pgTable(
