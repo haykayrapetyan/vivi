@@ -1,9 +1,11 @@
 import "server-only";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   candidate,
+  candidateView,
   chatMessage,
+  chatRead,
   group,
   interviewAnswer,
   interviewQuestion,
@@ -11,6 +13,7 @@ import {
   organization,
   user,
   vacancy,
+  vacancyAgent,
 } from "@/lib/db/schema";
 
 /** The user's saved theme preference (from their profile). */
@@ -117,6 +120,54 @@ export async function getOwnedVacancy(id: string, userId: string) {
   return m ? v : null;
 }
 
+/**
+ * Unread autonomous agent messages per vacancy for one org member (their
+ * chat_read cursor; no row = everything is unread). Powers sidebar badges.
+ */
+export async function getUnreadAgentCounts(
+  organizationId: string,
+  userId: string,
+): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      vacancyId: chatMessage.vacancyId,
+      count: sql<number>`count(*)`,
+    })
+    .from(chatMessage)
+    .innerJoin(vacancy, eq(chatMessage.vacancyId, vacancy.id))
+    .leftJoin(
+      chatRead,
+      and(
+        eq(chatRead.vacancyId, chatMessage.vacancyId),
+        eq(chatRead.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(vacancy.organizationId, organizationId),
+        eq(chatMessage.source, "auto"),
+        sql`${chatMessage.createdAt} > coalesce(${chatRead.lastReadAt}, 'epoch'::timestamp)`,
+      ),
+    )
+    .groupBy(chatMessage.vacancyId);
+  return new Map(rows.map((r) => [r.vacancyId, Number(r.count)]));
+}
+
+/** Candidate ids this user has already opened (for "New" labels). */
+export async function getViewedCandidateIds(
+  userId: string,
+  vacancyId: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ candidateId: candidateView.candidateId })
+    .from(candidateView)
+    .innerJoin(candidate, eq(candidateView.candidateId, candidate.id))
+    .where(
+      and(eq(candidateView.userId, userId), eq(candidate.vacancyId, vacancyId)),
+    );
+  return new Set(rows.map((r) => r.candidateId));
+}
+
 export async function getVacancyMessages(vacancyId: string) {
   return db
     .select()
@@ -198,4 +249,14 @@ export async function getCandidateByToken(token: string) {
 export async function getVacancyById(id: string) {
   const [v] = await db.select().from(vacancy).where(eq(vacancy.id, id)).limit(1);
   return v ?? null;
+}
+
+/** The vacancy's agent settings row, or null if not created yet (defaults apply). */
+export async function getVacancyAgent(vacancyId: string) {
+  const [a] = await db
+    .select()
+    .from(vacancyAgent)
+    .where(eq(vacancyAgent.vacancyId, vacancyId))
+    .limit(1);
+  return a ?? null;
 }

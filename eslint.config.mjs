@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Cloudflare agent worker is its own package (own tsc check); its
+    // .wrangler/ dir holds generated bundles eslint must never read.
+    "agent-worker/**",
   ]),
 ]);
 

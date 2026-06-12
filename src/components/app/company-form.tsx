@@ -1,14 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { Building2, Loader2, Sparkles, Upload } from "lucide-react";
 import { toast } from "sonner";
-import {
-  regenerateCompanyDescription,
-  updateCompany,
-  uploadCompanyLogo,
-} from "@/app/app/company-actions";
+import { updateCompany, uploadCompanyLogo } from "@/app/app/company-actions";
 import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +28,6 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | undefined>();
-  const [regenerating, startRegen] = useTransition();
 
   const logoPreview = logoFile
     ? URL.createObjectURL(logoFile)
@@ -61,18 +56,6 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
     } finally {
       setBusy(false);
     }
-  }
-
-  function regenerate() {
-    startRegen(async () => {
-      const { ok, description: next } = await regenerateCompanyDescription();
-      if (ok && next) {
-        setDescription(next);
-        router.refresh();
-      } else {
-        toast.error(t.company.generateError);
-      }
-    });
   }
 
   return (
@@ -136,30 +119,19 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
       </div>
 
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="c-desc">{t.company.descriptionLabel}</Label>
-          <button
-            type="button"
-            onClick={regenerate}
-            disabled={regenerating}
-            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            {regenerating ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <RefreshCw className="size-3" />
-            )}
-            {regenerating ? t.company.studying : t.company.regenerate}
-          </button>
-        </div>
+        <Label htmlFor="c-desc">{t.company.descriptionLabel}</Label>
         <Textarea
           id="c-desc"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          rows={10}
+          rows={3}
+          maxLength={500}
           placeholder={t.company.descriptionPlaceholder}
           className="text-sm"
         />
+        <p className="text-xs text-muted-foreground">
+          {t.company.descriptionHint}
+        </p>
       </div>
 
       <div className="flex justify-end">

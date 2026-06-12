@@ -46,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UserAvatar } from "@/components/app/user-avatar";
+import { AgentCard, type AgentCardData } from "@/components/app/agent-card";
 import { CandidatesReview, type CandidateRow } from "./candidates-review";
 
 export type PanelMember = {
@@ -73,11 +74,13 @@ export function VacancyPanel({
   questions,
   candidates,
   members,
+  agent,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
   members: PanelMember[];
+  agent: AgentCardData;
 }) {
   const t = useT();
 
@@ -107,7 +110,12 @@ export function VacancyPanel({
           value="vacancy"
           className="min-h-0 flex-1 overflow-y-auto p-4"
         >
-          <VacancyTab vacancy={vacancy} questions={questions} members={members} />
+          <VacancyTab
+            vacancy={vacancy}
+            questions={questions}
+            members={members}
+            agent={agent}
+          />
         </TabsContent>
 
         <TabsContent
@@ -121,7 +129,11 @@ export function VacancyPanel({
           value="analytics"
           className="min-h-0 flex-1 overflow-y-auto p-4"
         >
-          <AnalyticsTab vacancy={vacancy} candidates={candidates} />
+          <AnalyticsTab
+            vacancy={vacancy}
+            candidates={candidates}
+            questions={questions}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -132,10 +144,12 @@ function VacancyTab({
   vacancy,
   questions,
   members,
+  agent,
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   members: PanelMember[];
+  agent: AgentCardData;
 }) {
   const ready = Boolean(vacancy.descriptionMd) && questions.length > 0;
   const publicUrl = vacancy.publicSlug ? `${appUrl}/v/${vacancy.publicSlug}` : null;
@@ -144,10 +158,10 @@ function VacancyTab({
     <div className="space-y-6">
       <ShareCard vacancy={vacancy} ready={ready} publicUrl={publicUrl} />
 
-      <OwnerRow
+      <AgentCard
         vacancyId={vacancy.id}
-        ownerId={vacancy.ownerId}
-        members={members}
+        live={vacancy.status === "published"}
+        agent={agent}
       />
 
       {vacancy.details && <ParamsList details={vacancy.details} />}
@@ -158,6 +172,12 @@ function VacancyTab({
       />
 
       <EditableQuestions vacancyId={vacancy.id} questions={questions} />
+
+      <OwnerRow
+        vacancyId={vacancy.id}
+        ownerId={vacancy.ownerId}
+        members={members}
+      />
     </div>
   );
 }
@@ -653,12 +673,24 @@ function ParamsList({ details }: { details: VacancyDetails }) {
   );
 }
 
+/** "1h 20m" / "12m" / "2d 4h" from a duration in milliseconds. */
+function formatDuration(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `${Math.max(m, 1)}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
 function AnalyticsTab({
   vacancy,
   candidates,
+  questions,
 }: {
   vacancy: PanelVacancy;
   candidates: CandidateRow[];
+  questions: { id: string; text: string }[];
 }) {
   const t = useT();
   const views = vacancy.viewCount;
@@ -682,6 +714,28 @@ function AnalyticsTab({
     );
   }
 
+  // Quality + speed of the pipeline (from data we already store).
+  const scores = candidates
+    .map((c) => c.aiScore)
+    .filter((s): s is number => s != null);
+  const avgScore = scores.length
+    ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+    : null;
+
+  const durations = candidates
+    .filter((c) => c.completedAt)
+    .map((c) => new Date(c.completedAt!).getTime() - new Date(c.appliedAt).getTime())
+    .filter((ms) => ms > 0)
+    .sort((a, b) => a - b);
+  const medianMs = durations.length
+    ? durations[Math.floor(durations.length / 2)]
+    : null;
+
+  // Per-question drop-off: who quit on which question.
+  const answeredPerQuestion = questions.map(
+    (q) => candidates.filter((c) => c.answers.some((a) => a.questionId === q.id)).length,
+  );
+
   const steps = [
     { label: t.analytics.views, value: views },
     { label: t.analytics.applies, value: applies },
@@ -689,29 +743,41 @@ function AnalyticsTab({
     { label: t.analytics.completed, value: completed },
     { label: t.analytics.shortlisted, value: shortlisted },
   ];
-  const max = Math.max(views, applies, 1);
+  const max = Math.max(...steps.map((s) => s.value), 1);
+  // Visual widths in % of the container; floor keeps zero stages visible.
+  const widths = steps.map((s) => Math.max((s.value / max) * 100, 6));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="grid grid-cols-2 gap-2">
         <Stat label={t.analytics.views} value={views} />
         <Stat label={t.analytics.applies} value={applies} />
-        <Stat label={t.analytics.completed} value={completed} />
-        <Stat label={t.analytics.shortlisted} value={shortlisted} />
+        <Stat
+          label={t.analytics.avgScore}
+          value={avgScore != null ? `${avgScore}/10` : "—"}
+        />
+        <Stat
+          label={t.analytics.medianTime}
+          value={medianMs != null ? formatDuration(medianMs) : "—"}
+        />
       </div>
 
       <div>
-        <h3 className="mb-2.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <h3 className="mb-3 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <BarChart3 className="size-3.5" /> {t.analytics.funnel}
         </h3>
-        <div className="space-y-2">
+        <div>
           {steps.map((s, i) => {
             const prev = i === 0 ? null : steps[i - 1].value;
             const conv =
               prev && prev > 0 ? Math.round((s.value / prev) * 100) : null;
+            const top = widths[i];
+            const bottom = widths[i + 1] ?? widths[i];
+            const l1 = (100 - top) / 2;
+            const l2 = (100 - bottom) / 2;
             return (
               <div key={s.label}>
-                <div className="mb-1 flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{s.label}</span>
                   <span className="tabular-nums">
                     <span className="font-medium">{s.value}</span>
@@ -722,10 +788,13 @@ function AnalyticsTab({
                     )}
                   </span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div className="relative mb-1 mt-1 h-8">
                   <div
-                    className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.round((s.value / max) * 100)}%` }}
+                    className="absolute inset-0 rounded-[2px] bg-primary transition-all"
+                    style={{
+                      clipPath: `polygon(${l1}% 0, ${100 - l1}% 0, ${100 - l2}% 100%, ${l2}% 100%)`,
+                      opacity: 1 - i * 0.16,
+                    }}
                   />
                 </div>
               </div>
@@ -733,11 +802,44 @@ function AnalyticsTab({
           })}
         </div>
       </div>
+
+      {interviewed > 0 && questions.length > 1 && (
+        <div>
+          <h3 className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <ListChecks className="size-3.5" /> {t.analytics.dropoff}
+          </h3>
+          <p className="mb-2.5 text-xs text-muted-foreground">
+            {t.analytics.dropoffHint}
+          </p>
+          <div className="space-y-1.5">
+            {questions.map((q, i) => {
+              const n = answeredPerQuestion[i];
+              const pct = Math.round((n / Math.max(interviewed, 1)) * 100);
+              return (
+                <div key={q.id} className="flex items-center gap-2">
+                  <span className="w-4 shrink-0 text-right text-xs text-muted-foreground">
+                    {i + 1}
+                  </span>
+                  <div className="h-4 min-w-0 flex-1 overflow-hidden rounded-sm bg-muted">
+                    <div
+                      className="h-full rounded-sm bg-primary/70"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {n} · {pct}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-xl border bg-card/50 p-3">
       <div className="text-2xl font-semibold tabular-nums">{value}</div>

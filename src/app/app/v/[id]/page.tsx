@@ -5,10 +5,13 @@ import {
   getAnswersByVacancy,
   getOrgMembers,
   getOwnedVacancy,
+  getVacancyAgent,
   getVacancyCandidates,
   getVacancyMessages,
   getVacancyQuestions,
 } from "@/lib/data";
+import { fetchAgentStatus } from "@/lib/agent/dispatch";
+import { MobileMenuButton } from "@/components/app/sidebar";
 import { VacancyChat } from "@/components/app/vacancy-chat";
 import { VacancyPanel } from "@/components/app/vacancy-panel";
 import { VacancyPanelSheet } from "@/components/app/vacancy-panel-sheet";
@@ -27,13 +30,21 @@ export default async function VacancyPage({
   const vacancy = await getOwnedVacancy(id, user.id);
   if (!vacancy) notFound();
 
-  const [messages, questions, candidates, answers, members] = await Promise.all([
-    getVacancyMessages(id),
-    getVacancyQuestions(id),
-    getVacancyCandidates(id),
-    getAnswersByVacancy(id),
-    vacancy.organizationId ? getOrgMembers(vacancy.organizationId) : [],
-  ]);
+  const [messages, questions, candidates, answers, members, agentRow, agentStatus] =
+    await Promise.all([
+      getVacancyMessages(id),
+      getVacancyQuestions(id),
+      getVacancyCandidates(id),
+      getAnswersByVacancy(id),
+      vacancy.organizationId ? getOrgMembers(vacancy.organizationId) : [],
+      getVacancyAgent(id),
+      fetchAgentStatus(id),
+    ]);
+
+  const agentInfo = {
+    instructions: agentRow?.instructions ?? null,
+    status: agentStatus,
+  };
 
   const initialMessages: UIMessage[] = messages.map((m) => ({
     id: m.id,
@@ -68,7 +79,9 @@ export default async function VacancyPage({
     rating: c.rating,
     aiScore: c.aiScore,
     aiEvaluation: c.aiEvaluation,
+    appliedAt: c.createdAt.toISOString(),
     completedAt: c.completedAt?.toISOString() ?? null,
+    hasAvatar: Boolean(c.avatarKey),
     answers: answersByCandidate.get(c.id) ?? [],
   }));
 
@@ -93,7 +106,8 @@ export default async function VacancyPage({
   return (
     <div className="flex h-full min-w-0">
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-4">
+          <MobileMenuButton className="-ml-1" />
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
             {vacancy.title}
           </h1>
@@ -102,6 +116,7 @@ export default async function VacancyPage({
             questions={panelQuestions}
             candidates={candidateRows}
             members={panelMembers}
+            agent={agentInfo}
           />
         </header>
         <div className="min-h-0 flex-1">
@@ -120,6 +135,7 @@ export default async function VacancyPage({
           questions={panelQuestions}
           candidates={candidateRows}
           members={panelMembers}
+          agent={agentInfo}
         />
       </aside>
     </div>

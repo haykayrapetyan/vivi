@@ -11,6 +11,7 @@ import {
   vacancy,
 } from "@/lib/db/schema";
 import { readVideo } from "@/lib/storage";
+import { EVALUATION_RUBRIC } from "@/lib/agent/prompt";
 
 function hasOpenAI() {
   return Boolean(process.env.OPENAI_API_KEY);
@@ -21,8 +22,11 @@ export async function transcribeBuffer(buffer: Buffer): Promise<string | null> {
   if (!hasOpenAI()) return null;
   try {
     const { text } = await transcribe({
+      // gpt-4o-mini-transcribe is multilingual (incl. Russian) and, unlike
+      // whisper-1, rarely hallucinates stock phrases on short/quiet clips —
+      // which is what made dictation look like it "didn't understand Russian".
       model: openai.transcription(
-        process.env.OPENAI_TRANSCRIBE_MODEL ?? "whisper-1",
+        process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe",
       ),
       audio: new Uint8Array(buffer),
     });
@@ -109,7 +113,10 @@ export async function evaluateCandidate(candidateId: string): Promise<boolean> {
     })
     .join("\n\n");
 
-  const prompt = `You are a recruiting assistant. Evaluate the candidate based on their video-interview answers. Be objective and rely only on the content of the answers.
+  const prompt = `You are an expert recruiter evaluating a candidate from their video-interview answers. Be objective and rely only on the content of the answers.
+
+How to evaluate (recruiting methodology):
+${EVALUATION_RUBRIC}
 
 Role: ${vac.title}
 ${vac.descriptionMd ? `Description:\n${vac.descriptionMd}\n` : ""}
@@ -118,7 +125,7 @@ Candidate: ${cand.name}
 Answers (transcripts):
 ${qa}
 
-Give your evaluation in English. If there are no answers or they are off-topic, note that and lower the score.`;
+Give your evaluation in English. The score (1–10) must reflect fit for THIS role per the rubric above.`;
 
   try {
     const { object } = await generateObject({

@@ -14,10 +14,18 @@ import {
   sendInterviewCompletedEmail,
 } from "@/lib/email";
 import { user, vacancy } from "@/lib/db/schema";
-import { ensureVacancyAgent, postAgentMessage } from "@/lib/agent/store";
+import {
+  ensureVacancyAgent,
+  listAgentTaskKeys,
+  postAgentMessage,
+  recordAgentRunReport,
+  recordAgentTask,
+} from "@/lib/agent/store";
 import type {
   CandidateDetail,
   NotifyRequest,
+  PostedMessage,
+  RunReport,
   VacancyContext,
 } from "@/lib/agent/gateway-types";
 
@@ -69,7 +77,39 @@ export async function POST(
       return NextResponse.json({ error: "Empty content" }, { status: 400 });
     }
     const row = await postAgentMessage(path[1], content.trim());
-    return NextResponse.json({ ok: true, messageId: row.id });
+    const message: PostedMessage = {
+      id: row.id,
+      role: "assistant",
+      content: row.content,
+      source: "auto",
+      createdAt: row.createdAt.toISOString(),
+    };
+    return NextResponse.json({ ok: true, message });
+  }
+
+  // POST vacancy/:id/task {key} — record a completed idempotency unit.
+  if (path.length === 3 && path[0] === "vacancy" && path[2] === "task") {
+    const { key } = (await req.json()) as { key?: string };
+    if (!key?.trim()) {
+      return NextResponse.json({ error: "Missing key" }, { status: 400 });
+    }
+    await recordAgentTask(path[1], key.trim(), null);
+    return NextResponse.json({ ok: true });
+  }
+
+  // POST vacancy/:id/run — the worker reports a finished run (audit log).
+  if (path.length === 3 && path[0] === "vacancy" && path[2] === "run") {
+    const report = (await req.json()) as RunReport;
+    if (!report?.trigger || !report?.status) {
+      return NextResponse.json({ error: "Bad report" }, { status: 400 });
+    }
+    await recordAgentRunReport(path[1], {
+      trigger: report.trigger,
+      status: report.status,
+      summary: report.summary?.slice(0, 500),
+      error: report.error?.slice(0, 1000),
+    });
+    return NextResponse.json({ ok: true });
   }
 
   // POST vacancy/:id/candidate/:candidateId/evaluate
@@ -100,7 +140,7 @@ async function getVacancyContext(vacancyId: string) {
   const vac = await getVacancyById(vacancyId);
   if (!vac?.organizationId) return new Response("Not found", { status: 404 });
 
-  const [org, agent, questions, pool] = await Promise.all([
+  const [org, agent, questions, pool, doneTaskKeys] = await Promise.all([
     getOrganization(vac.organizationId),
     ensureVacancyAgent(vacancyId),
     db
@@ -109,6 +149,7 @@ async function getVacancyContext(vacancyId: string) {
       .where(eq(interviewQuestion.vacancyId, vacancyId))
       .orderBy(asc(interviewQuestion.orderIndex)),
     db.select().from(candidate).where(eq(candidate.vacancyId, vacancyId)),
+    listAgentTaskKeys(vacancyId),
   ]);
 
   const ctx: VacancyContext = {
@@ -119,6 +160,7 @@ async function getVacancyContext(vacancyId: string) {
     companyDescriptionMd: org?.descriptionMd ?? null,
     instructions: agent.enabled ? agent.instructions : null,
     questions: questions.map((q) => q.text),
+    doneTaskKeys,
     pool: pool.map((c) => ({
       id: c.id,
       name: c.name,

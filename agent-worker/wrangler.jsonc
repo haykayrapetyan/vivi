@@ -17,5 +17,12 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VacancyAgent"] }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Non-secret vars. Secrets (AGENT_GATEWAY_SECRET, OPENAI_API_KEY) go via
+  // `wrangler secret put`. APP_BASE_URL points the worker at the deployed app
+  // so its gateway callbacks reach production.
+  "vars": {
+    "APP_BASE_URL": "https://vivi.up.railway.app",
+    "OPENAI_MODEL": "gpt-4o"
+  }
 }

@@ -70,10 +70,12 @@ export async function POST(
       vacancyStatus: owned.status,
       companyName: org?.name,
       companyDescriptionMd: org?.descriptionMd,
+      companyWebsite: org?.website,
       instructions: agent.instructions,
+      canManageInstructions: true,
     }),
     messages: modelMessages,
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(12),
     tools: buildVacancyTools(owned),
     onFinish: async ({ text }) => {
       const content = text?.trim();

@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import {
   ArrowUp,
   FileCheck2,
+  Globe,
   Loader2,
   Sparkles,
   Users,
 } from "lucide-react";
+import { markChatRead } from "@/app/app/actions";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { VoiceInputButton } from "@/components/app/voice-input-button";
@@ -23,10 +25,6 @@ export type ChatMeta = {
   source?: "chat" | "auto";
   createdAt?: string;
 };
-
-function metaOf(m: UIMessage): ChatMeta {
-  return (m.metadata ?? {}) as ChatMeta;
-}
 
 export function VacancyChat({
   vacancyId,
@@ -61,16 +59,116 @@ export function VacancyChat({
 
   const busy = status === "submitted" || status === "streaming";
 
-  // Refs so the polling loop sees fresh state without re-subscribing.
+  // Refs so the polling/socket loops see fresh state without re-subscribing.
   const messagesRef = useRef(initialMessages);
   const busyRef = useRef(false);
   const lastTsRef = useRef(syncFrom);
+  const wsConnectedRef = useRef(false);
+  // Agent messages that arrived over WS while the assistant was streaming.
+  const pendingRef = useRef<UIMessage[]>([]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+
+  const mergeIncoming = useCallback(
+    (incoming: UIMessage[]) => {
+      const known = new Set(messagesRef.current.map((m) => m.id));
+      const fresh = incoming.filter((m) => !known.has(m.id));
+      if (!fresh.length) return;
+      if (busyRef.current) {
+        // Don't touch useChat state mid-stream — flush when it settles.
+        pendingRef.current.push(...fresh);
+        return;
+      }
+      setMessages([...messagesRef.current, ...fresh]);
+      // The chat is open, so what just arrived is instantly "read".
+      void markChatRead(vacancyId);
+      router.refresh();
+    },
+    [setMessages, router, vacancyId],
+  );
+
+  // Opening the chat clears the sidebar's unread-agent-messages badge.
+  useEffect(() => {
+    markChatRead(vacancyId).then(() => router.refresh());
+  }, [vacancyId, router]);
+
+  // Flush WS messages that were held back while streaming.
+  useEffect(() => {
+    if (busy || pendingRef.current.length === 0) return;
+    const pending = pendingRef.current;
+    pendingRef.current = [];
+    mergeIncoming(pending);
+  }, [busy, mergeIncoming]);
+
+  // Realtime push: WebSocket straight to the vacancy's agent (Durable
+  // Object). While connected, polling pauses; on failure it falls back.
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = async () => {
+      if (stopped) return;
+      try {
+        const res = await fetch(`/api/vacancy/${vacancyId}/agent-socket`);
+        if (!res.ok) return; // no worker configured — polling covers us
+        const info: { enabled: boolean; url?: string; token?: string } =
+          await res.json();
+        if (!info.enabled || !info.url || !info.token || stopped) return;
+
+        ws = new WebSocket(
+          `${info.url.replace(/^http/, "ws")}?token=${encodeURIComponent(info.token)}`,
+        );
+        ws.onopen = () => {
+          wsConnectedRef.current = true;
+        };
+        ws.onmessage = (e) => {
+          try {
+            const data = JSON.parse(String(e.data)) as {
+              type?: string;
+              message?: {
+                id: string;
+                content: string;
+                createdAt: string;
+              };
+            };
+            if (data.type !== "agent_message" || !data.message) return;
+            const m = data.message;
+            if (m.createdAt > lastTsRef.current) lastTsRef.current = m.createdAt;
+            mergeIncoming([
+              {
+                id: m.id,
+                role: "assistant",
+                parts: [{ type: "text", text: m.content }],
+                metadata: { source: "auto", createdAt: m.createdAt } as ChatMeta,
+              },
+            ]);
+          } catch {
+            // Not ours (e.g. cf_agent_* frames) — ignore.
+          }
+        };
+        ws.onclose = () => {
+          wsConnectedRef.current = false;
+          if (!stopped) retry = setTimeout(connect, 15_000);
+        };
+        ws.onerror = () => ws?.close();
+      } catch {
+        if (!stopped) retry = setTimeout(connect, 15_000);
+      }
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      wsConnectedRef.current = false;
+      ws?.close();
+    };
+  }, [vacancyId, mergeIncoming]);
 
   // Poll for messages the agent posted autonomously (completed interviews,
   // digests) and merge them into the open thread. `useChat`'s message state
@@ -80,7 +178,9 @@ export function VacancyChat({
     let inflight = false;
 
     const tick = async () => {
+      // The WebSocket delivers updates instantly — poll only as fallback.
       if (stopped || inflight || busyRef.current || document.hidden) return;
+      if (wsConnectedRef.current) return;
       inflight = true;
       try {
         const res = await fetch(
@@ -100,19 +200,14 @@ export function VacancyChat({
         if (!data.messages.length) return;
         lastTsRef.current = data.messages[data.messages.length - 1].createdAt;
 
-        const known = new Set(messagesRef.current.map((m) => m.id));
-        const fresh: UIMessage[] = data.messages
-          .filter((m) => !known.has(m.id))
-          .map((m) => ({
+        mergeIncoming(
+          data.messages.map((m) => ({
             id: m.id,
             role: m.role === "user" ? ("user" as const) : ("assistant" as const),
             parts: [{ type: "text" as const, text: m.content }],
             metadata: { source: "auto", createdAt: m.createdAt } as ChatMeta,
-          }));
-        if (fresh.length && !busyRef.current) {
-          setMessages([...messagesRef.current, ...fresh]);
-          router.refresh();
-        }
+          })),
+        );
       } catch {
         // Network hiccup — next tick will retry.
       } finally {
@@ -127,7 +222,7 @@ export function VacancyChat({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [vacancyId, setMessages, router]);
+  }, [vacancyId, mergeIncoming]);
 
   // Auto-send the prompt carried over from the landing-page composer so the AI
   // starts building the vacancy immediately. Fires once, only for a fresh chat.
@@ -139,11 +234,17 @@ export function VacancyChat({
     window.history.replaceState(null, "", `/app/v/${vacancyId}`);
   }, [initialPrompt, initialMessages.length, sendMessage, vacancyId]);
 
+  // Jump to the latest message instantly on open; animate only for messages
+  // that arrive while the chat is already on screen.
+  const firstScrollRef = useRef(true);
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: firstScrollRef.current ? "instant" : "smooth",
     });
+    firstScrollRef.current = false;
   }, [messages, status]);
 
   function submit() {
@@ -241,7 +342,8 @@ export function VacancyChat({
 function MessageBubble({ message }: { message: UIMessage }) {
   const t = useT();
   const isUser = message.role === "user";
-  const isAuto = metaOf(message).source === "auto";
+  // Autonomous messages render exactly like interactive ones — it's all one
+  // continuous conversation with the agent (metadata.source stays for sync).
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -250,16 +352,9 @@ function MessageBubble({ message }: { message: UIMessage }) {
           "max-w-[85%] rounded-2xl px-4 py-2.5",
           isUser
             ? "bg-primary text-primary-foreground"
-            : "bg-card text-card-foreground",
-          isAuto && "border border-primary/25",
+            : "border bg-card text-card-foreground",
         )}
       >
-        {isAuto && (
-          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-primary">
-            <Sparkles className="size-3" />
-            {t.chat.agentBadge}
-          </div>
-        )}
         {message.parts.map((part, i) => {
           if (part.type === "text") {
             return isUser ? (
@@ -287,6 +382,18 @@ function MessageBubble({ message }: { message: UIMessage }) {
             return (
               <ToolChip key={i} done={done} icon={<Users className="size-3.5" />}>
                 {t.chat.checkingCandidates}
+              </ToolChip>
+            );
+          }
+          if (
+            part.type === "tool-web_search" ||
+            part.type === "tool-fetch_url"
+          ) {
+            const done =
+              "state" in part && part.state === "output-available";
+            return (
+              <ToolChip key={i} done={done} icon={<Globe className="size-3.5" />}>
+                {t.chat.searchingWeb}
               </ToolChip>
             );
           }
@@ -321,7 +428,7 @@ function ToolChip({
 function TypingBubble() {
   return (
     <div className="flex justify-start">
-      <div className="rounded-2xl bg-card px-4 py-3">
+      <div className="rounded-2xl border bg-card px-4 py-3">
         <div className="flex gap-1">
           <Dot /> <Dot delay="150ms" /> <Dot delay="300ms" />
         </div>

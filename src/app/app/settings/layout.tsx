@@ -1,5 +1,6 @@
 import { getServerDictionary } from "@/lib/i18n/server";
 import { SettingsNav } from "@/components/app/settings-nav";
+import { MobileMenuButton } from "@/components/app/sidebar";
 
 export default async function SettingsLayout({
   children,
@@ -11,9 +12,12 @@ export default async function SettingsLayout({
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="text-xl font-semibold tracking-tight">
-          {t.settings.title}
-        </h1>
+        <div className="flex items-center gap-2">
+          <MobileMenuButton className="-ml-2" />
+          <h1 className="text-xl font-semibold tracking-tight">
+            {t.settings.title}
+          </h1>
+        </div>
         <div className="mt-5">
           <SettingsNav />
         </div>

@@ -30,7 +30,7 @@ export function LandingHero({ isLoggedIn }: { isLoggedIn: boolean }) {
       start(() => startVacancyFromPrompt(text));
       return;
     }
-    // Stash the draft so it survives the magic-link round-trip, then sign in.
+    // Stash the draft so it survives the sign-in round-trip, then sign in.
     document.cookie = `${DRAFT_COOKIE}=${encodeURIComponent(
       text.slice(0, MAX_DRAFT_LEN),
     )}; path=/; max-age=1800; samesite=lax`;

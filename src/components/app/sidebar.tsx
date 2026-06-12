@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useTransition,
+} from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Archive,
   Building2,
   ChevronRight,
   FolderPlus,
@@ -59,7 +66,6 @@ import {
   Sheet,
   SheetContent,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useTheme } from "@/components/providers";
@@ -68,7 +74,13 @@ import { GroupDialog } from "@/components/app/group-dialog";
 import { UserAvatar } from "@/components/app/user-avatar";
 import type { CompanyProfile } from "@/components/app/company-form";
 
-type VacancyItem = { id: string; title: string; status: VacancyStatus };
+type VacancyItem = {
+  id: string;
+  title: string;
+  status: VacancyStatus;
+  /** Unread autonomous agent messages in this vacancy's chat. */
+  unread: number;
+};
 type GroupItem = { id: string; name: string; vacancies: VacancyItem[] };
 type GroupOption = { id: string; name: string };
 
@@ -135,6 +147,8 @@ type SidebarProps = {
   activeCompany: CompanyProfile;
   groups: GroupItem[];
   ungrouped: VacancyItem[];
+  /** Hidden from the main tree; shown in a collapsed section at the bottom. */
+  archived: VacancyItem[];
 };
 
 function SidebarBody({
@@ -144,6 +158,7 @@ function SidebarBody({
   activeCompany,
   groups,
   ungrouped,
+  archived,
 }: SidebarProps) {
   const t = useT();
   const router = useRouter();
@@ -251,6 +266,15 @@ function SidebarBody({
               ))}
             </>
           )}
+          {archived.length > 0 && (
+            <ArchivedSection
+              archived={archived}
+              groupOptions={groupOptions}
+              onMove={move}
+              onDragStart={() => setDragging(true)}
+              onDragEnd={() => setDragging(false)}
+            />
+          )}
         </div>
       </div>
 
@@ -270,8 +294,17 @@ export function AppSidebar(props: SidebarProps) {
   );
 }
 
-/** Mobile top bar with a hamburger that opens the sidebar in a drawer. */
-export function MobileNav(props: SidebarProps) {
+// The mobile sidebar drawer lives once in the layout; the hamburger that opens
+// it is placed inline by each page (in its own header row) via MobileMenuButton,
+// so there's no separate top bar stacked above the page header.
+const MobileMenuContext = createContext<(() => void) | null>(null);
+
+/** Holds the mobile sidebar drawer (left Sheet) and exposes an opener via
+ * context to any MobileMenuButton rendered inside `children`. */
+export function MobileMenuProvider({
+  children,
+  ...props
+}: SidebarProps & { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -282,13 +315,9 @@ export function MobileNav(props: SidebarProps) {
   }, [pathname]);
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b bg-sidebar px-2 md:hidden">
+    <MobileMenuContext.Provider value={() => setOpen(true)}>
+      {children}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Menu">
-            <Menu className="size-5" />
-          </Button>
-        </SheetTrigger>
         <SheetContent
           side="left"
           className="flex w-[272px] flex-col gap-0 bg-sidebar p-0"
@@ -297,10 +326,24 @@ export function MobileNav(props: SidebarProps) {
           <SidebarBody {...props} />
         </SheetContent>
       </Sheet>
-      <Link href="/" className="text-base font-semibold tracking-tight">
-        Vivi
-      </Link>
-    </div>
+    </MobileMenuContext.Provider>
+  );
+}
+
+/** Hamburger that opens the mobile sidebar drawer. Hidden on md+. Place it in
+ * a page's header row (e.g. next to the vacancy title). */
+export function MobileMenuButton({ className }: { className?: string }) {
+  const open = useContext(MobileMenuContext);
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Menu"
+      onClick={() => open?.()}
+      className={cn("md:hidden", className)}
+    >
+      <Menu className="size-5" />
+    </Button>
   );
 }
 
@@ -443,6 +486,61 @@ function GroupSection({
 
 const NO_GROUP = "none";
 
+/** Collapsed-by-default home for archived vacancies — out of the way, but
+ * still searchable by eye and fully navigable. */
+function ArchivedSection({
+  archived,
+  groupOptions,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: {
+  archived: VacancyItem[];
+  groupOptions: GroupOption[];
+  onMove: (vacancyId: string, groupId: string | null) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  const t = useT();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-4 border-t pt-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-foreground"
+      >
+        <ChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <Archive className="size-3.5 shrink-0" />
+        {t.sidebar.archived}
+        <span className="ml-auto tabular-nums">{archived.length}</span>
+      </button>
+      {open && (
+        <div className="mt-0.5 space-y-0.5 opacity-75">
+          {archived.map((v) => (
+            <VacancyRow
+              key={v.id}
+              vacancy={v}
+              active={pathname === `/app/v/${v.id}`}
+              currentGroupId={null}
+              groupOptions={groupOptions}
+              onMoveGroup={onMove}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VacancyRow({
   vacancy,
   active,
@@ -502,6 +600,14 @@ function VacancyRow({
         >
           {vacancy.title}
         </Link>
+        {vacancy.unread > 0 && (
+          <span
+            className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold tabular-nums text-primary-foreground"
+            title={`${vacancy.unread} new agent update(s)`}
+          >
+            {vacancy.unread > 9 ? "9+" : vacancy.unread}
+          </span>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

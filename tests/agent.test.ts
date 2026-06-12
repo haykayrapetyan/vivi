@@ -66,13 +66,13 @@ describe("buildAgentSystemPrompt", () => {
   });
 
   it("appends company context only when present", () => {
-    expect(buildAgentSystemPrompt(base)).not.toContain("Context about the company");
+    expect(buildAgentSystemPrompt(base)).not.toContain("The hiring company is");
     const p = buildAgentSystemPrompt({
       ...base,
       companyName: "Acme",
       companyDescriptionMd: "We build rockets",
     });
-    expect(p).toContain('company "Acme"');
+    expect(p).toContain('The hiring company is "Acme"');
     expect(p).toContain("We build rockets");
   });
 

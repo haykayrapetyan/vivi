@@ -23,3 +23,22 @@ export function findStuckCandidates<
 export function daysWaiting(createdAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / 86_400_000));
 }
+
+/**
+ * Catch-up sweep: completed candidates whose screening never happened (lost
+ * event, worker downtime). `screenKeyOf` keeps this module free of imports;
+ * `limit` bounds LLM cost per heartbeat.
+ */
+export function pickUnscreened<
+  T extends { id: string; completedAt: Date | string | null },
+>(
+  pool: T[],
+  doneTaskKeys: string[],
+  screenKeyOf: (candidateId: string) => string,
+  limit = 3,
+): T[] {
+  const done = new Set(doneTaskKeys);
+  return pool
+    .filter((c) => c.completedAt && !done.has(screenKeyOf(c.id)))
+    .slice(0, limit);
+}

@@ -25,7 +25,7 @@ import type { AiEvaluation, CandidateStatus } from "@/lib/db/schema";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
   SelectContent,
@@ -43,7 +43,10 @@ export type CandidateRow = {
   rating: number | null;
   aiScore: number | null;
   aiEvaluation: AiEvaluation | null;
+  appliedAt: string;
   completedAt: string | null;
+  /** True when a frame was captured from the interview video. */
+  hasAvatar: boolean;
   answers: {
     id: string;
     questionId: string;
@@ -192,6 +195,12 @@ function CandidateListItem({
       className="flex w-full items-center gap-3 rounded-xl border bg-card/50 p-2.5 text-left transition-colors hover:border-primary/40"
     >
       <Avatar className="size-9">
+        {candidate.hasAvatar && (
+          <AvatarImage
+            src={`/api/media/candidate-avatar/${candidate.id}`}
+            alt=""
+          />
+        )}
         <AvatarFallback className="text-xs">
           {candidate.name.slice(0, 2).toUpperCase()}
         </AvatarFallback>
@@ -260,6 +269,12 @@ function CandidateDetail({
 
       <div className="flex items-center gap-3">
         <Avatar className="size-10">
+          {candidate.hasAvatar && (
+            <AvatarImage
+              src={`/api/media/candidate-avatar/${candidate.id}`}
+              alt=""
+            />
+          )}
           <AvatarFallback className="text-sm">
             {candidate.name.slice(0, 2).toUpperCase()}
           </AvatarFallback>

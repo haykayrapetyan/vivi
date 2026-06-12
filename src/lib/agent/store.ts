@@ -50,6 +50,56 @@ export async function ensureVacancyAgent(
   return row;
 }
 
+/** All idempotency keys recorded for a vacancy (shared ledger for worker + fallback). */
+export async function listAgentTaskKeys(vacancyId: string): Promise<string[]> {
+  const rows = await db
+    .select({ key: agentTask.key })
+    .from(agentTask)
+    .where(eq(agentTask.vacancyId, vacancyId));
+  return rows.map((r) => r.key);
+}
+
+/**
+ * Records a finished worker run in one shot (the worker reports outcomes
+ * after the fact; only the inline fallback uses start/finish separately).
+ */
+export async function recordAgentRunReport(
+  vacancyId: string,
+  report: {
+    trigger: AgentTrigger;
+    status: AgentRunStatus;
+    summary?: string;
+    error?: string;
+  },
+) {
+  await db.insert(agentRun).values({
+    vacancyId,
+    trigger: report.trigger,
+    status: report.status,
+    summary: report.summary,
+    error: report.error,
+    finishedAt: new Date(),
+  });
+  if (report.status === "done") {
+    await db
+      .update(vacancyAgent)
+      .set({ lastRunAt: new Date() })
+      .where(eq(vacancyAgent.vacancyId, vacancyId));
+  }
+}
+
+/** Updates the agent's standing instructions (empty string clears them). */
+export async function setAgentInstructions(
+  vacancyId: string,
+  instructions: string,
+) {
+  await ensureVacancyAgent(vacancyId);
+  await db
+    .update(vacancyAgent)
+    .set({ instructions: instructions.trim().slice(0, 2000) || null })
+    .where(eq(vacancyAgent.vacancyId, vacancyId));
+}
+
 /** Has this unit of agent work already been done? (see keys.ts) */
 export async function hasAgentTask(key: string): Promise<boolean> {
   const [row] = await db

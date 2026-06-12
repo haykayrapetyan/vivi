@@ -5,8 +5,19 @@
 import type {
   CandidateDetail,
   NotifyRequest,
+  PostedMessage,
+  RunReport,
   VacancyContext,
 } from "../../src/lib/agent/gateway-types";
+
+export class GatewayError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 export class Gateway {
   constructor(
@@ -27,7 +38,7 @@ export class Gateway {
       },
     );
     if (!res.ok) {
-      throw new Error(`gateway ${path} → ${res.status}`);
+      throw new GatewayError(`gateway ${path} → ${res.status}`, res.status);
     }
     return res.json() as Promise<T>;
   }
@@ -53,7 +64,10 @@ export class Gateway {
     });
   }
 
-  postMessage(vacancyId: string, content: string): Promise<{ ok: boolean }> {
+  postMessage(
+    vacancyId: string,
+    content: string,
+  ): Promise<{ ok: boolean; message: PostedMessage }> {
     return this.req(`vacancy/${vacancyId}/message`, {
       method: "POST",
       body: JSON.stringify({ content }),
@@ -64,6 +78,22 @@ export class Gateway {
     return this.req(`vacancy/${vacancyId}/notify`, {
       method: "POST",
       body: JSON.stringify(body),
+    });
+  }
+
+  /** Records an idempotency key in the shared Postgres ledger. */
+  recordTask(vacancyId: string, key: string): Promise<{ ok: boolean }> {
+    return this.req(`vacancy/${vacancyId}/task`, {
+      method: "POST",
+      body: JSON.stringify({ key }),
+    });
+  }
+
+  /** Reports a finished run for the audit log. */
+  reportRun(vacancyId: string, report: RunReport): Promise<{ ok: boolean }> {
+    return this.req(`vacancy/${vacancyId}/run`, {
+      method: "POST",
+      body: JSON.stringify(report),
     });
   }
 }
