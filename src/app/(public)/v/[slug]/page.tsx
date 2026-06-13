@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Archive, ArrowUpRight, Video } from "lucide-react";
+import { Archive, ChevronRight, Video } from "lucide-react";
 import {
   getOrganization,
   getPublicVacancy,
@@ -91,7 +91,7 @@ export default async function PublicVacancyPage({
             <span className="text-base font-semibold tracking-tight">
               {companyName ?? "Vivi"}
             </span>
-            <ArrowUpRight className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+            <ChevronRight className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
           </Link>
         ) : (
           <div className="flex items-center gap-2">
