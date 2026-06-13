@@ -8,7 +8,7 @@ import {
   interviewQuestion,
 } from "@/lib/db/schema";
 import { getOrganization, getVacancyById } from "@/lib/data";
-import { evaluateCandidate } from "@/lib/ai-eval";
+import { evaluateCandidate, flattenEvaluation } from "@/lib/ai-eval";
 import {
   sendAgentReviewEmail,
   sendInterviewCompletedEmail,
@@ -207,7 +207,7 @@ async function getCandidateDetail(vacancyId: string, candidateId: string) {
     name: c.name,
     status: c.status,
     aiScore: c.aiScore,
-    aiEvaluation: c.aiEvaluation,
+    aiEvaluation: flattenEvaluation(c.aiEvaluation),
     answers: questions.map((q) => ({
       question: q.text,
       transcript: byQuestion.get(q.id)?.transcript ?? null,

@@ -2,6 +2,7 @@ import "server-only";
 import { generateText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { safeFetch } from "@/lib/safe-fetch";
+import { stripHtml } from "@/lib/html";
 
 function hasOpenAI() {
   return Boolean(process.env.OPENAI_API_KEY);
@@ -31,14 +32,7 @@ async function fetchWebsiteText(url: string): Promise<string | null> {
     if (!res?.ok) return null;
 
     const html = await res.text();
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&[a-z]+;/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    return text.slice(0, 6000) || null;
+    return stripHtml(html) || null;
   } catch {
     return null;
   }

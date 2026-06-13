@@ -23,7 +23,7 @@ import {
   rerunEvaluation,
   setCandidateStatus,
 } from "@/app/app/actions";
-import type { AiEvaluation, CandidateStatus } from "@/lib/db/schema";
+import type { AiEvalPoint, AiEvaluation, CandidateStatus } from "@/lib/db/schema";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
 import { cn } from "@/lib/utils";
@@ -88,6 +88,7 @@ export function CandidatesReview({
   questions,
   viewedCandidateIds = [],
   externalSelection = null,
+  onSeen,
 }: {
   candidates: CandidateRow[];
   questions: Question[];
@@ -95,6 +96,8 @@ export function CandidatesReview({
   viewedCandidateIds?: string[];
   /** A request from the chat to open a specific candidate. */
   externalSelection?: { candidateId: string; nonce: number } | null;
+  /** Notifies the parent when a candidate is opened (updates the tab badge). */
+  onSeen?: (id: string) => void;
 }) {
   const t = useT();
   const [statusFilter, setStatusFilter] = useState<CandidateStatus | "all">("all");
@@ -112,6 +115,7 @@ export function CandidatesReview({
     setSelectedId(id);
     if (!seenIds.has(id)) {
       setLocallySeen((prev) => new Set(prev).add(id));
+      onSeen?.(id);
       void markCandidateSeen(id);
     }
   }
@@ -352,7 +356,7 @@ function CandidateDetail({
         <ResumeLinks candidate={candidate} />
       )}
 
-      <AiCard candidate={candidate} />
+      <AiCard candidate={candidate} totalQuestions={questions.length} />
 
       {playlist.length > 0 && active ? (
         <div className="space-y-3">
@@ -496,11 +500,70 @@ function Controls({ candidate }: { candidate: CandidateRow }) {
   );
 }
 
-function AiCard({ candidate }: { candidate: CandidateRow }) {
+/** Color the 1–10 score by band: green strong, amber middling, red weak. */
+function scoreColor(score: number): string {
+  if (score >= 7) return "bg-emerald-500/15 text-emerald-500";
+  if (score >= 4) return "bg-amber-500/15 text-amber-500";
+  return "bg-red-500/15 text-red-500";
+}
+
+/** Tolerates both the new {point, quote} shape and legacy plain-string points. */
+function asPoint(p: AiEvalPoint | string): AiEvalPoint {
+  return typeof p === "string" ? { point: p } : p;
+}
+
+function PointList({
+  label,
+  color,
+  points,
+}: {
+  label: string;
+  color: string;
+  points: (AiEvalPoint | string)[];
+}) {
+  if (points.length === 0) return null;
+  return (
+    <div>
+      <p className={cn("font-medium", color)}>{label}</p>
+      <ul className="ml-4 list-disc space-y-0.5 text-foreground/80">
+        {points.map((raw, i) => {
+          const p = asPoint(raw);
+          return (
+            <li key={i}>
+              {p.point}
+              {p.quote && (
+                <span className="mt-0.5 block border-l-2 border-border pl-2 italic text-muted-foreground">
+                  “{p.quote}”
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function AiCard({
+  candidate,
+  totalQuestions,
+}: {
+  candidate: CandidateRow;
+  totalQuestions: number;
+}) {
   const t = useT();
   const router = useRouter();
   const [pending, start] = useTransition();
   const data = candidate.aiEvaluation;
+
+  // Honest coverage signal, computed from the answers we already loaded.
+  const answered = candidate.answers.filter(
+    (a) => (a.transcript?.match(/\S+/g)?.length ?? 0) >= 8,
+  ).length;
+  const words = candidate.answers.reduce(
+    (sum, a) => sum + (a.transcript?.match(/\S+/g)?.length ?? 0),
+    0,
+  );
 
   function rerun() {
     start(async () => {
@@ -517,7 +580,12 @@ function AiCard({ candidate }: { candidate: CandidateRow }) {
           <Sparkles className="size-4" />
           {t.candidates.aiTitle}
           {candidate.aiScore != null && (
-            <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums">
+            <span
+              className={cn(
+                "ml-1 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                scoreColor(candidate.aiScore),
+              )}
+            >
               {candidate.aiScore}/10
             </span>
           )}
@@ -537,32 +605,64 @@ function AiCard({ candidate }: { candidate: CandidateRow }) {
       </div>
 
       {data ? (
-        <div className="space-y-2 text-xs">
+        <div className="space-y-2.5 text-xs">
+          {totalQuestions > 0 && (
+            <p className="text-muted-foreground">
+              {interpolate(t.candidates.aiCoverage, {
+                answered,
+                total: totalQuestions,
+                words,
+              })}
+            </p>
+          )}
           <p className="leading-relaxed text-foreground/90">{data.summary}</p>
-          {data.strengths.length > 0 && (
+
+          {data.dimensions && data.dimensions.length > 0 && (
             <div>
-              <p className="font-medium text-emerald-500">
-                {t.candidates.aiStrengths}
+              <p className="mb-1 font-medium text-foreground/80">
+                {t.candidates.aiBreakdown}
               </p>
-              <ul className="ml-4 list-disc text-foreground/80">
-                {data.strengths.map((s, i) => (
-                  <li key={i}>{s}</li>
+              <div className="space-y-1">
+                {data.dimensions.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="w-32 shrink-0 truncate text-muted-foreground">
+                      {d.name}
+                    </span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${(d.score / 10) * 100}%` }}
+                      />
+                    </div>
+                    <span className="w-7 shrink-0 text-right tabular-nums text-foreground/70">
+                      {d.score}/10
+                    </span>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
-          {data.concerns.length > 0 && (
-            <div>
-              <p className="font-medium text-amber-500">
-                {t.candidates.aiConcerns}
-              </p>
-              <ul className="ml-4 list-disc text-foreground/80">
-                {data.concerns.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </div>
+
+          <PointList
+            label={t.candidates.aiStrengths}
+            color="text-emerald-500"
+            points={data.strengths}
+          />
+          <PointList
+            label={t.candidates.aiConcerns}
+            color="text-amber-500"
+            points={data.concerns}
+          />
+
+          {data.visualNotes && (
+            <p className="text-muted-foreground">
+              <span className="font-medium text-foreground/80">
+                {t.candidates.aiVisualNotes}:{" "}
+              </span>
+              {data.visualNotes}
+            </p>
           )}
+
           <p className="text-muted-foreground">
             <span className="font-medium text-foreground/80">
               {t.candidates.aiRecommendation}:{" "}

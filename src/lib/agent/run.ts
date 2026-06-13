@@ -11,7 +11,7 @@ import {
   vacancy,
 } from "@/lib/db/schema";
 import { getOrganization, getVacancyById } from "@/lib/data";
-import { evaluateCandidate } from "@/lib/ai-eval";
+import { evaluateCandidate, flattenEvaluation } from "@/lib/ai-eval";
 import {
   sendAgentReviewEmail,
   sendInterviewCompletedEmail,
@@ -109,7 +109,7 @@ export async function runCandidateCompleted(candidateId: string) {
             transcript: byQuestion.get(q.id)?.transcript ?? null,
           })),
           aiScore: fresh.aiScore,
-          aiEvaluation: fresh.aiEvaluation,
+          aiEvaluation: flattenEvaluation(fresh.aiEvaluation),
           pool: pool.map((p) => ({
             name: p.name,
             status: p.status,
