@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Archive,
@@ -31,6 +31,7 @@ import {
   updateVacancyDescription,
 } from "@/app/app/actions";
 import type { VacancyDetails, VacancyStatus } from "@/lib/db/schema";
+import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import { vacancyParamRows } from "@/lib/vacancy-params";
 import { VacancyHighlights } from "@/components/vacancy-highlights";
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { UserAvatar } from "@/components/app/user-avatar";
 import { AgentCard, type AgentCardData } from "@/components/app/agent-card";
+import { useVacancyUi } from "@/components/app/vacancy-ui-context";
 import { CandidatesReview, type CandidateRow } from "./candidates-review";
 
 export type PanelMember = {
@@ -75,18 +77,37 @@ export function VacancyPanel({
   candidates,
   members,
   agent,
+  viewedCandidateIds = [],
 }: {
   vacancy: PanelVacancy;
   questions: { id: string; text: string }[];
   candidates: CandidateRow[];
   members: PanelMember[];
   agent: AgentCardData;
+  viewedCandidateIds?: string[];
 }) {
   const t = useT();
+  const ui = useVacancyUi();
+  const [tab, setTab] = useState("vacancy");
+
+  // A click on a candidate in the chat opens the Candidates tab on them.
+  const selectionNonce = ui?.selection?.nonce;
+  useEffect(() => {
+    // Reacting to the cross-panel selection bus (an external system).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (selectionNonce != null) setTab("candidates");
+  }, [selectionNonce]);
+
+  const viewed = new Set(viewedCandidateIds);
+  const unread = candidates.filter((c) => !viewed.has(c.id)).length;
 
   return (
     <div className="flex h-full flex-col">
-      <Tabs defaultValue="vacancy" className="flex h-full flex-col gap-0">
+      <Tabs
+        value={tab}
+        onValueChange={setTab}
+        className="flex h-full flex-col gap-0"
+      >
         <div className="border-b p-2.5">
           <TabsList className="w-full">
             <TabsTrigger value="vacancy" className="flex-1 gap-1.5">
@@ -95,8 +116,15 @@ export function VacancyPanel({
             <TabsTrigger value="candidates" className="flex-1 gap-1.5">
               <Users className="size-3.5" /> {t.panel.tabCandidates}
               {candidates.length > 0 && (
-                <span className="rounded-full bg-background/70 px-1.5 text-[10px] tabular-nums">
-                  {candidates.length}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[10px] tabular-nums",
+                    unread > 0
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background/70",
+                  )}
+                >
+                  {unread > 0 ? unread : candidates.length}
                 </span>
               )}
             </TabsTrigger>
@@ -122,7 +150,12 @@ export function VacancyPanel({
           value="candidates"
           className="min-h-0 flex-1 overflow-y-auto p-4"
         >
-          <CandidatesReview candidates={candidates} questions={questions} />
+          <CandidatesReview
+            candidates={candidates}
+            questions={questions}
+            viewedCandidateIds={viewedCandidateIds}
+            externalSelection={ui?.selection ?? null}
+          />
         </TabsContent>
 
         <TabsContent

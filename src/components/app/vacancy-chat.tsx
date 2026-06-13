@@ -16,6 +16,7 @@ import { markChatRead } from "@/app/app/actions";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { VoiceInputButton } from "@/components/app/voice-input-button";
+import { useVacancyUi } from "@/components/app/vacancy-ui-context";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import { interpolate } from "@/lib/i18n/dictionaries";
@@ -26,17 +27,22 @@ export type ChatMeta = {
   createdAt?: string;
 };
 
+export type ChatCandidate = { id: string; name: string };
+
 export function VacancyChat({
   vacancyId,
   initialMessages,
   initialPrompt,
   syncFrom,
+  candidates = [],
 }: {
   vacancyId: string;
   initialMessages: UIMessage[];
   initialPrompt?: string;
   /** ISO timestamp to poll for autonomous agent messages after. */
   syncFrom: string;
+  /** Vacancy candidates, so agent messages can link to them. */
+  candidates?: ChatCandidate[];
 }) {
   const router = useRouter();
   const t = useT();
@@ -284,7 +290,7 @@ export function VacancyChat({
           ) : (
             <div className="space-y-5">
               {messages.map((m) => (
-                <MessageBubble key={m.id} message={m} />
+                <MessageBubble key={m.id} message={m} candidates={candidates} />
               ))}
               {status === "submitted" && <TypingBubble />}
             </div>
@@ -339,11 +345,31 @@ export function VacancyChat({
   );
 }
 
-function MessageBubble({ message }: { message: UIMessage }) {
+function MessageBubble({
+  message,
+  candidates,
+}: {
+  message: UIMessage;
+  candidates: ChatCandidate[];
+}) {
   const t = useT();
   const isUser = message.role === "user";
   // Autonomous messages render exactly like interactive ones — it's all one
   // continuous conversation with the agent (metadata.source stays for sync).
+
+  // The agent screens candidates by name; surface anyone it mentions as a
+  // clickable card that opens them in the panel (assistant messages only).
+  const text = isUser
+    ? ""
+    : message.parts
+        .map((p) => (p.type === "text" ? p.text : ""))
+        .join(" ")
+        .toLowerCase();
+  const mentioned = isUser
+    ? []
+    : candidates.filter(
+        (c) => c.name.trim().length > 1 && text.includes(c.name.toLowerCase()),
+      );
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -399,8 +425,29 @@ function MessageBubble({ message }: { message: UIMessage }) {
           }
           return null;
         })}
+        {mentioned.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {mentioned.map((c) => (
+              <CandidateRef key={c.id} candidate={c} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function CandidateRef({ candidate }: { candidate: ChatCandidate }) {
+  const ui = useVacancyUi();
+  return (
+    <button
+      type="button"
+      onClick={() => ui?.selectCandidate(candidate.id)}
+      className="flex items-center gap-1.5 rounded-lg border bg-background/60 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+    >
+      <Users className="size-3.5 text-primary" />
+      {candidate.name}
+    </button>
   );
 }
 

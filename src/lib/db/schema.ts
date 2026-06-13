@@ -321,6 +321,10 @@ export const candidate = pgTable(
     aiEvaluatedAt: timestamp("ai_evaluated_at"),
     // R2 key of a frame captured from the interview video (the avatar)
     avatarKey: text("avatar_key"),
+    // Candidate-provided resume: a link they pasted and/or an uploaded file
+    // (R2 key), collected right after they start the interview.
+    resumeUrl: text("resume_url"),
+    resumeKey: text("resume_key"),
     // token used by the candidate to access their interview page
     publicToken: text("public_token")
       .notNull()

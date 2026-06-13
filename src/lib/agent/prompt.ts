@@ -24,7 +24,10 @@ Working with the candidate pool:
 export const EVALUATION_RUBRIC = `- Judge on concrete achievements and evidence from what the candidate actually said — quantified results over titles or self-description. Quote the moment that convinced you.
 - Weigh the things that predict a lasting hire: can they actually do the job (evidence of similar work), intrinsic motivation (not money-first), realism about themselves, ease to work with, and culture fit — alongside raw skill.
 - Behaviour on past jobs predicts behaviour on the next one in similar situations — trust concrete situational evidence over self-assessment.
-- Always name both strengths AND the areas that need development or verification. A balanced read is more useful than a verdict. If the answers are thin, off-topic or missing, say so plainly and lower the score.`;
+- Credit ONLY what was actually said on camera. Never infer skills, experience or qualities the candidate did not demonstrate — no benefit of the doubt, no filling gaps with assumptions or with what the role "needs".
+- Silence, near-silence, "I don't know", off-topic rambling that never answers the question, or only a few seconds of speech are NON-ANSWERS — they earn no credit. A candidate who barely spoke, gave empty answers, or skipped most questions CANNOT score above 3/10, however good they might look on paper. Most questions left effectively unanswered = a failing score, full stop.
+- Anchor the 1–10 scale: 1–3 = little to no usable evidence (non-answers, empty/very short/garbled responses); 4–6 = answered but generic, vague or unconvincing; 7–8 = solid, specific, role-relevant evidence; 9–10 = exceptional and clearly proven. Most real candidates land 4–7 — reserve 8+ for genuinely strong, concrete evidence.
+- Always name both strengths AND the areas that need development or verification. A balanced read is more useful than a verdict. If the answers are thin, off-topic or missing, say so plainly and score accordingly.`;
 
 // Distilled from a classic agency/executive-search methodology (the 36-step
 // CBR/Bern process). These are the universal recruiting skills the agent
