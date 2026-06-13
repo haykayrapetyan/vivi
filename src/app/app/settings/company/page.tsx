@@ -13,6 +13,7 @@ export default async function CompanySettingsPage() {
         website: org?.website ?? null,
         descriptionMd: org?.descriptionMd ?? null,
         logo: org?.logo ?? null,
+        slug: org?.slug ?? null,
       }}
     />
   );

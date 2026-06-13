@@ -166,6 +166,9 @@ const en = {
       "One or two sentences about your company (optional) — used as extra context for vacancies.",
     descriptionHint:
       "Optional. The agent also reads your website live when it writes a vacancy.",
+    pageUrlLabel: "Company page URL",
+    pageUrlHint:
+      "Your public company page with all active openings. Must be unique.",
     logoLabel: "Logo",
     logoUpload: "Upload logo",
     logoHint:
@@ -344,6 +347,13 @@ const en = {
     closedTitle: "Applications closed",
     closedText:
       "This vacancy is no longer accepting applications. Thanks for your interest!",
+    viewCompany: "View company",
+  },
+  companyPage: {
+    openRolesTitle: "Open roles",
+    aboutTitle: "About {company}",
+    noRoles: "No open roles right now — check back soon.",
+    viewRole: "View role",
   },
   apply: {
     header: "Apply",
