@@ -6,6 +6,7 @@ import { Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { uploadUserAvatar } from "@/app/app/user-actions";
+import { downscaleImage } from "@/lib/image-resize";
 import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,8 +56,9 @@ export function SettingsForm({
     if (!file) return;
     setAvatarBusy(true);
     try {
+      const img = await downscaleImage(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", img, "avatar.webp");
       const { image: url } = await uploadUserAvatar(fd);
       setAvatar(url);
       router.refresh();

@@ -6,6 +6,7 @@ import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { setupCompany, uploadCompanyLogo } from "@/app/app/company-actions";
+import { downscaleImage } from "@/lib/image-resize";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 import { buildPublicSlug } from "@/lib/slug";
@@ -166,8 +167,9 @@ function CreateCompanyDialog({
     }
     await authClient.organization.setActive({ organizationId: data.id });
     if (logoFile) {
+      const logo = await downscaleImage(logoFile);
       const fd = new FormData();
-      fd.append("file", logoFile);
+      fd.append("file", logo, "logo.webp");
       try {
         await uploadCompanyLogo(fd);
       } catch (err) {

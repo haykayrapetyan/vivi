@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Building2, Loader2, Sparkles, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { updateCompany, uploadCompanyLogo } from "@/app/app/company-actions";
+import { downscaleImage } from "@/lib/image-resize";
 import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,8 +44,9 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
     setBusy(true);
     try {
       if (logoFile) {
+        const logo = await downscaleImage(logoFile);
         const fd = new FormData();
-        fd.append("file", logoFile);
+        fd.append("file", logo, "logo.webp");
         await uploadCompanyLogo(fd);
       }
       await updateCompany({ name, website, descriptionMd: description });
