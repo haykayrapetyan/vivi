@@ -734,7 +734,7 @@ function UserMenu({
           <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-sidebar-accent/60">
             <UserAvatar user={user} size="sm" />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
-              {user.email}
+              {user.name?.trim() || user.email}
             </span>
           </button>
         </DropdownMenuTrigger>
