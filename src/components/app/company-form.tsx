@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Loader2, Sparkles, Upload } from "lucide-react";
+import { Building2, ExternalLink, Loader2, Sparkles, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { updateCompany, uploadCompanyLogo } from "@/app/app/company-actions";
 import { downscaleImage } from "@/lib/image-resize";
@@ -168,6 +168,18 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
             placeholder="acme"
             className="min-w-0 flex-1 bg-transparent px-2.5 py-2 text-sm outline-none"
           />
+          {company.slug && (
+            <a
+              href={`/c/${company.slug}`}
+              target="_blank"
+              rel="noreferrer"
+              title={t.company.pageUrlOpen}
+              className="flex shrink-0 items-center gap-1 border-l px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ExternalLink className="size-3.5" />
+              {t.company.pageUrlOpen}
+            </a>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">
           {t.company.pageUrlHint}

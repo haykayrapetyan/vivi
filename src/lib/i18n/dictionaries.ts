@@ -169,6 +169,7 @@ const en = {
     pageUrlLabel: "Company page URL",
     pageUrlHint:
       "Your public company page with all active openings. Must be unique.",
+    pageUrlOpen: "Open",
     logoLabel: "Logo",
     logoUpload: "Upload logo",
     logoHint:
