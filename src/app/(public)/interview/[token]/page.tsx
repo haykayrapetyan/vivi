@@ -3,6 +3,7 @@ import { Archive } from "lucide-react";
 import {
   getCandidateByToken,
   getCandidateAnswers,
+  getOrganization,
   getVacancyById,
   getVacancyQuestions,
 } from "@/lib/data";
@@ -27,6 +28,10 @@ export default async function InterviewPage({
     getCandidateAnswers(candidate.id),
   ]);
   if (!vacancy) notFound();
+
+  const org = vacancy.organizationId
+    ? await getOrganization(vacancy.organizationId)
+    : null;
 
   // A closed/archived vacancy takes no more interviews — show a notice
   // instead of the recorder (already-completed candidates keep their state).
@@ -57,6 +62,9 @@ export default async function InterviewPage({
       questions={questions.map((q) => ({ id: q.id, text: q.text }))}
       answeredQuestionIds={[...answeredIds]}
       completed={candidate.status === "completed"}
+      hasResume={Boolean(candidate.resumeUrl || candidate.resumeKey)}
+      companyName={org?.name ?? null}
+      companyLogo={org?.logo ?? null}
     />
   );
 }

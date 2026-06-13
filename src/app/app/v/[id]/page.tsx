@@ -9,12 +9,14 @@ import {
   getVacancyCandidates,
   getVacancyMessages,
   getVacancyQuestions,
+  getViewedCandidateIds,
 } from "@/lib/data";
 import { fetchAgentStatus } from "@/lib/agent/dispatch";
 import { MobileMenuButton } from "@/components/app/sidebar";
 import { VacancyChat } from "@/components/app/vacancy-chat";
 import { VacancyPanel } from "@/components/app/vacancy-panel";
 import { VacancyPanelSheet } from "@/components/app/vacancy-panel-sheet";
+import { VacancyUiProvider } from "@/components/app/vacancy-ui-context";
 import type { CandidateRow } from "@/components/app/candidates-review";
 
 export default async function VacancyPage({
@@ -30,16 +32,25 @@ export default async function VacancyPage({
   const vacancy = await getOwnedVacancy(id, user.id);
   if (!vacancy) notFound();
 
-  const [messages, questions, candidates, answers, members, agentRow, agentStatus] =
-    await Promise.all([
-      getVacancyMessages(id),
-      getVacancyQuestions(id),
-      getVacancyCandidates(id),
-      getAnswersByVacancy(id),
-      vacancy.organizationId ? getOrgMembers(vacancy.organizationId) : [],
-      getVacancyAgent(id),
-      fetchAgentStatus(id),
-    ]);
+  const [
+    messages,
+    questions,
+    candidates,
+    answers,
+    members,
+    agentRow,
+    agentStatus,
+    viewedIds,
+  ] = await Promise.all([
+    getVacancyMessages(id),
+    getVacancyQuestions(id),
+    getVacancyCandidates(id),
+    getAnswersByVacancy(id),
+    vacancy.organizationId ? getOrgMembers(vacancy.organizationId) : [],
+    getVacancyAgent(id),
+    fetchAgentStatus(id),
+    getViewedCandidateIds(user.id, id),
+  ]);
 
   const agentInfo = {
     instructions: agentRow?.instructions ?? null,
@@ -82,6 +93,8 @@ export default async function VacancyPage({
     appliedAt: c.createdAt.toISOString(),
     completedAt: c.completedAt?.toISOString() ?? null,
     hasAvatar: Boolean(c.avatarKey),
+    resumeUrl: c.resumeUrl,
+    hasResumeFile: Boolean(c.resumeKey),
     answers: answersByCandidate.get(c.id) ?? [],
   }));
 
@@ -102,42 +115,50 @@ export default async function VacancyPage({
     email: m.email,
     image: m.image,
   }));
+  const viewedCandidateIds = [...viewedIds];
+  // For clickable candidate references in agent chat messages.
+  const chatCandidates = candidateRows.map((c) => ({ id: c.id, name: c.name }));
 
   return (
-    <div className="flex h-full min-w-0">
-      <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-4">
-          <MobileMenuButton className="-ml-1" />
-          <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
-            {vacancy.title}
-          </h1>
-          <VacancyPanelSheet
+    <VacancyUiProvider>
+      <div className="flex h-full min-w-0">
+        <section className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-4">
+            <MobileMenuButton className="-ml-1" />
+            <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
+              {vacancy.title}
+            </h1>
+            <VacancyPanelSheet
+              vacancy={panelVacancy}
+              questions={panelQuestions}
+              candidates={candidateRows}
+              members={panelMembers}
+              agent={agentInfo}
+              viewedCandidateIds={viewedCandidateIds}
+            />
+          </header>
+          <div className="min-h-0 flex-1">
+            <VacancyChat
+              vacancyId={id}
+              initialMessages={initialMessages}
+              initialPrompt={prompt}
+              syncFrom={syncFrom}
+              candidates={chatCandidates}
+            />
+          </div>
+        </section>
+
+        <aside className="hidden w-[420px] shrink-0 border-l lg:block">
+          <VacancyPanel
             vacancy={panelVacancy}
             questions={panelQuestions}
             candidates={candidateRows}
             members={panelMembers}
             agent={agentInfo}
+            viewedCandidateIds={viewedCandidateIds}
           />
-        </header>
-        <div className="min-h-0 flex-1">
-          <VacancyChat
-            vacancyId={id}
-            initialMessages={initialMessages}
-            initialPrompt={prompt}
-            syncFrom={syncFrom}
-          />
-        </div>
-      </section>
-
-      <aside className="hidden w-[420px] shrink-0 border-l lg:block">
-        <VacancyPanel
-          vacancy={panelVacancy}
-          questions={panelQuestions}
-          candidates={candidateRows}
-          members={panelMembers}
-          agent={agentInfo}
-        />
-      </aside>
-    </div>
+        </aside>
+      </div>
+    </VacancyUiProvider>
   );
 }

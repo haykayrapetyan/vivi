@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
+  FileText,
   Loader2,
   Mail,
   Phone,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  markCandidateSeen,
   rateCandidate,
   rerunEvaluation,
   setCandidateStatus,
@@ -47,6 +49,10 @@ export type CandidateRow = {
   completedAt: string | null;
   /** True when a frame was captured from the interview video. */
   hasAvatar: boolean;
+  /** Candidate-provided resume link (if pasted). */
+  resumeUrl: string | null;
+  /** True when the candidate uploaded a resume file. */
+  hasResumeFile: boolean;
   answers: {
     id: string;
     questionId: string;
@@ -80,14 +86,46 @@ function useStatusMeta() {
 export function CandidatesReview({
   candidates,
   questions,
+  viewedCandidateIds = [],
+  externalSelection = null,
 }: {
   candidates: CandidateRow[];
   questions: Question[];
+  /** Candidate ids this user has already opened — drives the "New" label. */
+  viewedCandidateIds?: string[];
+  /** A request from the chat to open a specific candidate. */
+  externalSelection?: { candidateId: string; nonce: number } | null;
 }) {
   const t = useT();
   const [statusFilter, setStatusFilter] = useState<CandidateStatus | "all">("all");
   const [sort, setSort] = useState<"newest" | "rating" | "ai">("newest");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Candidates opened in this session — clears their "New" label optimistically.
+  const [locallySeen, setLocallySeen] = useState<Set<string>>(new Set());
+
+  const seenIds = useMemo(
+    () => new Set([...viewedCandidateIds, ...locallySeen]),
+    [viewedCandidateIds, locallySeen],
+  );
+
+  function open(id: string) {
+    setSelectedId(id);
+    if (!seenIds.has(id)) {
+      setLocallySeen((prev) => new Set(prev).add(id));
+      void markCandidateSeen(id);
+    }
+  }
+
+  // The chat asked to open a candidate (clicked an agent message reference).
+  const externalNonce = externalSelection?.nonce;
+  useEffect(() => {
+    const id = externalSelection?.candidateId;
+    if (externalNonce == null || !id) return;
+    // Reacting to the chat's selection bus (an external system).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (candidates.some((c) => c.id === id)) open(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalNonce]);
 
   const visible = useMemo(() => {
     let list = candidates;
@@ -172,7 +210,8 @@ export function CandidatesReview({
             <CandidateListItem
               key={c.id}
               candidate={c}
-              onOpen={() => setSelectedId(c.id)}
+              isNew={!seenIds.has(c.id)}
+              onOpen={() => open(c.id)}
             />
           ))}
         </div>
@@ -183,16 +222,22 @@ export function CandidatesReview({
 
 function CandidateListItem({
   candidate,
+  isNew,
   onOpen,
 }: {
   candidate: CandidateRow;
+  isNew: boolean;
   onOpen: () => void;
 }) {
+  const t = useT();
   const meta = useStatusMeta()[candidate.status];
   return (
     <button
       onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-xl border bg-card/50 p-2.5 text-left transition-colors hover:border-primary/40"
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl border bg-card/50 p-2.5 text-left transition-colors hover:border-primary/40",
+        isNew && "border-primary/30 bg-primary/5",
+      )}
     >
       <Avatar className="size-9">
         {candidate.hasAvatar && (
@@ -208,6 +253,11 @@ function CandidateListItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{candidate.name}</span>
+          {isNew && (
+            <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-primary-foreground">
+              {t.candidates.newBadge}
+            </span>
+          )}
           <StaticStars rating={candidate.rating ?? 0} />
         </div>
         <div className="flex items-center gap-2 text-xs">
@@ -298,6 +348,10 @@ function CandidateDetail({
 
       <Controls candidate={candidate} />
 
+      {(candidate.resumeUrl || candidate.hasResumeFile) && (
+        <ResumeLinks candidate={candidate} />
+      )}
+
       <AiCard candidate={candidate} />
 
       {playlist.length > 0 && active ? (
@@ -363,6 +417,38 @@ function CandidateDetail({
         <p className="rounded-lg border border-dashed bg-card/30 px-3 py-4 text-center text-xs text-muted-foreground">
           {t.candidates.noVideos}
         </p>
+      )}
+    </div>
+  );
+}
+
+function ResumeLinks({ candidate }: { candidate: CandidateRow }) {
+  const t = useT();
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card/50 px-3 py-2.5">
+      <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <FileText className="size-3.5" />
+        {t.candidates.resumeTitle}
+      </span>
+      {candidate.hasResumeFile && (
+        <a
+          href={`/api/media/resume/${candidate.id}`}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:border-primary/50 hover:text-primary"
+        >
+          {t.candidates.resumeOpen}
+        </a>
+      )}
+      {candidate.resumeUrl && (
+        <a
+          href={candidate.resumeUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="max-w-full truncate rounded-lg border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:border-primary/50 hover:text-primary"
+        >
+          {candidate.resumeUrl.replace(/^https?:\/\//, "")}
+        </a>
       )}
     </div>
   );

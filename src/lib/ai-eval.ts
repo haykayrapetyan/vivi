@@ -104,16 +104,36 @@ export async function evaluateCandidate(candidateId: string): Promise<boolean> {
     }
   }
 
+  // Count words of real content so the model gets an explicit answer-substance
+  // signal (silence/near-silence is the #1 reason a "non-answer" wrongly scored
+  // high). Duration comes from the recorder; word count from the transcript.
+  const wordCount = (s: string) => (s.match(/\S+/g) ?? []).length;
+  let answeredQuestions = 0;
+  let totalWords = 0;
+
   const qa = questions
     .map((q, i) => {
-      const t = answerByQ.get(q.id)?.transcript?.trim();
-      return `Question ${i + 1}: ${q.text}\nAnswer: ${
-        t || "[answer missing or not recognized]"
+      const a = answerByQ.get(q.id);
+      const t = a?.transcript?.trim() ?? "";
+      const words = wordCount(t);
+      const dur = a?.durationSec ?? null;
+      totalWords += words;
+      // "Real" answer = recorded and produced at least a sentence of content.
+      if (a && words >= 8) answeredQuestions += 1;
+      const meta = a
+        ? `${dur != null ? `${dur}s spoken, ` : ""}${words} words`
+        : "no recording";
+      return `Question ${i + 1}: ${q.text}\nAnswer (${meta}): ${
+        t || "[no answer — the candidate said nothing usable]"
       }`;
     })
     .join("\n\n");
 
-  const prompt = `You are an expert recruiter evaluating a candidate from their video-interview answers. Be objective and rely only on the content of the answers.
+  const coverage = `Across ${questions.length} question${
+    questions.length === 1 ? "" : "s"
+  }, the candidate gave a real answer (≈a sentence or more) to ${answeredQuestions} of them and spoke ${totalWords} words of usable content in total.`;
+
+  const prompt = `You are an expert recruiter evaluating a candidate from their video-interview answers. Be objective and rely ONLY on what the candidate actually said. Each answer below is annotated with its spoken duration and word count — use those signals: short, empty or "no recording" answers carry no evidence and must drag the score down.
 
 How to evaluate (recruiting methodology):
 ${EVALUATION_RUBRIC}
@@ -122,10 +142,12 @@ Role: ${vac.title}
 ${vac.descriptionMd ? `Description:\n${vac.descriptionMd}\n` : ""}
 Candidate: ${cand.name}
 
+Answer coverage: ${coverage}
+
 Answers (transcripts):
 ${qa}
 
-Give your evaluation in English. The score (1–10) must reflect fit for THIS role per the rubric above.`;
+Give your evaluation in English. The score (1–10) MUST follow the anchored scale in the rubric and reflect fit for THIS role. If most questions were left effectively unanswered, the score belongs in 1–3 — do not be generous.`;
 
   try {
     const { object } = await generateObject({

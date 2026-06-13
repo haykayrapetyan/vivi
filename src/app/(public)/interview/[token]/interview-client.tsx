@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import {
   CheckCircle2,
+  Clock,
+  FileText,
   Loader2,
+  Mail,
+  Paperclip,
   RotateCcw,
+  Search,
   Send,
   Video,
   VideoOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/format";
 import { useT } from "@/lib/i18n/client";
@@ -18,7 +23,7 @@ import { interpolate } from "@/lib/i18n/dictionaries";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type Q = { id: string; text: string };
-type Phase = "intro" | "denied" | "question" | "review" | "done";
+type Phase = "intro" | "resume" | "denied" | "question" | "review" | "done";
 
 const MAX_SECONDS = 120;
 
@@ -40,6 +45,9 @@ export function InterviewClient({
   questions,
   answeredQuestionIds,
   completed,
+  hasResume,
+  companyName,
+  companyLogo,
 }: {
   token: string;
   candidateName: string;
@@ -47,6 +55,11 @@ export function InterviewClient({
   questions: Q[];
   answeredQuestionIds: string[];
   completed: boolean;
+  /** Whether the candidate already submitted a resume (skip the gate). */
+  hasResume: boolean;
+  /** The hiring company (branding shown to the candidate, not Vivi). */
+  companyName: string | null;
+  companyLogo: string | null;
 }) {
   const t = useT();
   const answered = new Set(answeredQuestionIds);
@@ -86,6 +99,13 @@ export function InterviewClient({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  // "Start interview" → collect a resume first (unless already provided),
+  // then ask for camera permission.
+  function begin() {
+    if (hasResume) start();
+    else setPhase("resume");
+  }
 
   async function start() {
     setError(null);
@@ -260,12 +280,23 @@ export function InterviewClient({
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 bg-[radial-gradient(50%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent)]"
       />
       <header className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-6 py-5">
-        <Link
-          href="/"
-          className="shrink-0 text-base font-semibold tracking-tight"
-        >
-          Vivi
-        </Link>
+        <div className="flex min-w-0 items-center gap-2">
+          {companyLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={companyLogo}
+              alt={companyName ?? ""}
+              className="size-7 shrink-0 rounded-md object-cover"
+            />
+          ) : (
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-xs font-semibold text-primary">
+              {(companyName ?? "V").slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="truncate text-base font-semibold tracking-tight">
+            {companyName ?? "Vivi"}
+          </span>
+        </div>
         <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
           {vacancyTitle}
         </span>
@@ -279,8 +310,12 @@ export function InterviewClient({
           <Intro
             candidateName={candidateName}
             count={questions.length}
-            onStart={start}
+            onStart={begin}
           />
+        )}
+
+        {phase === "resume" && (
+          <ResumeGate token={token} onDone={start} />
         )}
 
         {phase === "denied" && (
@@ -391,17 +426,39 @@ export function InterviewClient({
 
         {phase === "done" && (
           <Centered>
-            <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
-              <CheckCircle2 className="size-6" />
+            <Confetti />
+            <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+              <CheckCircle2 className="size-7" />
             </div>
-            <h1 className="text-lg font-medium">
+            <h1 className="text-2xl font-semibold tracking-tight">
               {interpolate(t.interview.doneTitle, { name: candidateName })}
             </h1>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
               {questions.length === 0
                 ? t.interview.doneDescNoQuestions
                 : t.interview.doneDesc}
             </p>
+
+            {questions.length > 0 && (
+              <div className="mt-8 w-full max-w-sm rounded-2xl border bg-card/50 p-5 text-left">
+                <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t.interview.nextTitle}
+                </p>
+                <ul className="space-y-3">
+                  <NextStep icon={<Search className="size-4" />}>
+                    {interpolate(t.interview.next1, {
+                      company: companyName ?? t.interview.theTeam,
+                    })}
+                  </NextStep>
+                  <NextStep icon={<Mail className="size-4" />}>
+                    {t.interview.next2}
+                  </NextStep>
+                  <NextStep icon={<Clock className="size-4" />}>
+                    {t.interview.next3}
+                  </NextStep>
+                </ul>
+              </div>
+            )}
           </Centered>
         )}
       </main>
@@ -448,6 +505,120 @@ function Intro({
   );
 }
 
+function ResumeGate({
+  token,
+  onDone,
+}: {
+  token: string;
+  onDone: () => void;
+}) {
+  const t = useT();
+  const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function submit() {
+    if (!url.trim() && !file) {
+      setError(t.interview.resumeRequired);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      if (url.trim()) fd.append("url", url.trim());
+      if (file) fd.append("file", file);
+      const res = await fetch(`/api/interview/${token}/resume`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(data?.error || t.interview.resumeError);
+        setBusy(false);
+        return;
+      }
+      onDone();
+    } catch {
+      setError(t.interview.resumeError);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Centered>
+      <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <FileText className="size-6" />
+      </div>
+      <h1 className="text-xl font-medium">{t.interview.resumeTitle}</h1>
+      <p className="mt-2 max-w-md text-sm text-muted-foreground">
+        {t.interview.resumeDesc}
+      </p>
+
+      <div className="mt-7 w-full max-w-sm space-y-3 text-left">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">
+            {t.interview.resumeUrlLabel}
+          </label>
+          <Input
+            type="url"
+            inputMode="url"
+            placeholder={t.interview.resumeUrlPlaceholder}
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              if (error) setError(null);
+            }}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          {t.interview.resumeOr}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.txt,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            if (error) setError(null);
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-start gap-2 font-normal"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Paperclip className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">
+            {file ? file.name : t.interview.resumeChooseFile}
+          </span>
+        </Button>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </div>
+
+      <Button size="lg" className="mt-7" onClick={submit} disabled={busy}>
+        {busy ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Video className="size-4" />
+        )}
+        {t.interview.resumeContinue}
+      </Button>
+    </Centered>
+  );
+}
+
 function Progress({
   questions,
   index,
@@ -480,6 +651,83 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center text-center">
       {children}
+    </div>
+  );
+}
+
+function NextStep({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3 text-sm">
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </span>
+      <span className="leading-relaxed text-foreground/90">{children}</span>
+    </li>
+  );
+}
+
+const CONFETTI_COLORS = [
+  "#6366f1",
+  "#8b5cf6",
+  "#d946ef",
+  "#22c55e",
+  "#f59e0b",
+  "#38bdf8",
+];
+
+type ConfettiPiece = {
+  left: number;
+  delay: number;
+  duration: number;
+  size: number;
+  color: string;
+};
+
+// A one-shot celebratory burst — self-contained, no dependency. Pieces fall
+// once and fade out; the layer is non-interactive and removes nothing.
+// Built in an effect (Math.random isn't allowed during render).
+function Confetti() {
+  const [pieces, setPieces] = useState<ConfettiPiece[]>([]);
+  useEffect(() => {
+    // One-time randomized burst; Math.random can't run during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPieces(
+      Array.from({ length: 90 }, (_, i) => ({
+        left: Math.random() * 100,
+        delay: Math.random() * 0.5,
+        duration: 2.4 + Math.random() * 1.6,
+        size: 6 + Math.random() * 6,
+        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      })),
+    );
+  }, []);
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 z-50 overflow-hidden"
+    >
+      <style>{`@keyframes vivi-confetti-fall{0%{transform:translateY(-12vh) rotate(0);opacity:1}100%{transform:translateY(112vh) rotate(640deg);opacity:0}}`}</style>
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${p.left}%`,
+            width: p.size,
+            height: p.size * 1.7,
+            background: p.color,
+            borderRadius: 2,
+            animation: `vivi-confetti-fall ${p.duration}s cubic-bezier(0.3,0.6,0.7,1) ${p.delay}s forwards`,
+          }}
+        />
+      ))}
     </div>
   );
 }
