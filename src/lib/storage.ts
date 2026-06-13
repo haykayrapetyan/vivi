@@ -72,6 +72,20 @@ export async function readVideo(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
+/** Reads an object's bytes + content type — used by media routes that proxy
+ * small images so the browser can cache by a stable URL (a signed-URL redirect
+ * changes every request and is never cached). */
+export async function readObject(
+  key: string,
+): Promise<{ body: Buffer; contentType: string | undefined }> {
+  const { mod, client, bucket } = await r2();
+  const res = await client.send(
+    new mod.GetObjectCommand({ Bucket: bucket, Key: sanitizeKey(key) }),
+  );
+  const bytes = await res.Body!.transformToByteArray();
+  return { body: Buffer.from(bytes), contentType: res.ContentType };
+}
+
 export async function videoSize(key: string): Promise<number> {
   const { mod, client, bucket } = await r2();
   const res = await client.send(
