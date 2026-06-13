@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { candidate, member, vacancy } from "@/lib/db/schema";
 import { getSession } from "@/lib/session";
-import { getReadUrl } from "@/lib/storage";
+import { readObject } from "@/lib/storage";
 
 // Candidate avatar (a frame from their interview video). Org-member-only,
 // same access rule as answer videos.
@@ -28,6 +28,17 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  const url = await getReadUrl(row.avatarKey);
-  return Response.redirect(url, 302);
+  // Proxy the bytes (the captured frame never changes) with a private cache so
+  // it isn't re-fetched on every candidate-list render.
+  try {
+    const { body, contentType } = await readObject(row.avatarKey);
+    return new Response(new Uint8Array(body), {
+      headers: {
+        "Content-Type": contentType || "image/jpeg",
+        "Cache-Control": "private, max-age=86400",
+      },
+    });
+  } catch {
+    return new Response("Not found", { status: 404 });
+  }
 }
