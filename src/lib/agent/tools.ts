@@ -12,6 +12,7 @@ import {
   type Vacancy,
 } from "@/lib/db/schema";
 import { safeFetch } from "@/lib/safe-fetch";
+import { stripHtml } from "@/lib/html";
 import { buildPublicSlug } from "@/lib/slug";
 import { canTransition } from "@/lib/vacancy-lifecycle";
 import { cleanUntrusted, untrustedBlock } from "./sanitize";
@@ -28,14 +29,7 @@ async function readUrlText(url: string): Promise<string> {
     return `[unsupported content type: ${ct || "unknown"}]`;
   }
   const html = await res.text();
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&[a-z]+;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.slice(0, 6000);
+  return stripHtml(html);
 }
 
 /**

@@ -293,11 +293,21 @@ export type CandidateStatus =
   | "shortlisted"
   | "rejected";
 
+/** A strength or concern, optionally backed by a quote from what the candidate said. */
+export type AiEvalPoint = { point: string; quote?: string };
+
+/** A per-axis score (1–10) with a one-line justification. */
+export type AiEvalDimension = { name: string; score: number; evidence: string };
+
 export type AiEvaluation = {
   summary: string;
-  strengths: string[];
-  concerns: string[];
+  strengths: AiEvalPoint[];
+  concerns: AiEvalPoint[];
   recommendation: string;
+  /** Per-criterion breakdown (can-do-the-job / motivation / realism / culture & communication). */
+  dimensions?: AiEvalDimension[];
+  /** What the sampled video frames showed (presence/setting/engagement); "" if none. */
+  visualNotes?: string;
 };
 
 export const candidate = pgTable(
