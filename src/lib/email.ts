@@ -55,7 +55,7 @@ const appUrl =
 const brandWrap = (inner: string) => `
   <div style="background:#0f1014;padding:40px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
     <div style="max-width:440px;margin:0 auto;background:#16181d;border:1px solid #26282f;border-radius:16px;padding:32px;color:#e7e8ea;">
-      <img src="${appUrl}/brand/vivi-white.png" alt="Vivi" height="26" style="height:26px;width:auto;margin-bottom:24px;display:block;border:0;outline:none;text-decoration:none;" />
+      <img src="${appUrl}/brand/vivi-dark.png" alt="Vivi" height="26" style="height:26px;width:auto;margin-bottom:24px;display:block;border:0;outline:none;text-decoration:none;" />
       ${inner}
     </div>
     <div style="max-width:440px;margin:16px auto 0;text-align:center;color:#6b6f76;font-size:12px;">

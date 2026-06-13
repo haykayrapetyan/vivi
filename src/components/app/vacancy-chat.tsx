@@ -53,7 +53,17 @@ export function VacancyChat({
   ];
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const autoSentRef = useRef(false);
+
+  // Auto-grow the composer with the text (grows upward; scrolls only past cap)
+  // instead of an awkward fixed-height box with an inner scrollbar.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [input]);
 
   const { messages, sendMessage, status, error, setMessages } = useChat({
     transport: new DefaultChatTransport({
@@ -305,9 +315,10 @@ export function VacancyChat({
       </div>
 
       <div className="border-t bg-background/80 backdrop-blur">
-        <div className="mx-auto w-full max-w-2xl px-4 py-3">
-          <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 focus-within:border-primary/50">
+        <div className="mx-auto w-full max-w-2xl px-4 py-2">
+          <div className="flex items-end gap-2 rounded-2xl border bg-card p-1.5 focus-within:border-primary/50">
             <textarea
+              ref={taRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -318,7 +329,7 @@ export function VacancyChat({
               }}
               rows={1}
               placeholder={t.chat.placeholder}
-              className="max-h-40 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+              className="max-h-[200px] flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
             />
             <VoiceInputButton
               disabled={busy}
