@@ -89,6 +89,8 @@ export function VacancyPanel({
   const t = useT();
   const ui = useVacancyUi();
   const [tab, setTab] = useState("vacancy");
+  // Candidates opened this session — clears the tab badge live, no refresh.
+  const [locallySeen, setLocallySeen] = useState<Set<string>>(new Set());
 
   // A click on a candidate in the chat opens the Candidates tab on them.
   const selectionNonce = ui?.selection?.nonce;
@@ -98,8 +100,10 @@ export function VacancyPanel({
     if (selectionNonce != null) setTab("candidates");
   }, [selectionNonce]);
 
-  const viewed = new Set(viewedCandidateIds);
+  const viewed = new Set([...viewedCandidateIds, ...locallySeen]);
   const unread = candidates.filter((c) => !viewed.has(c.id)).length;
+  const markSeen = (id: string) =>
+    setLocallySeen((prev) => new Set(prev).add(id));
 
   return (
     <div className="flex h-full flex-col">
@@ -155,6 +159,7 @@ export function VacancyPanel({
             questions={questions}
             viewedCandidateIds={viewedCandidateIds}
             externalSelection={ui?.selection ?? null}
+            onSeen={markSeen}
           />
         </TabsContent>
 
@@ -778,7 +783,14 @@ function AnalyticsTab({
   ];
   const max = Math.max(...steps.map((s) => s.value), 1);
   // Visual widths in % of the container; floor keeps zero stages visible.
-  const widths = steps.map((s) => Math.max((s.value / max) * 100, 6));
+  // Clamp each stage to be no wider than the one above so the funnel always
+  // narrows — real data isn't always monotonic (e.g. someone shortlisted
+  // without a recorded answer), which otherwise flares the shape outward.
+  const rawWidths = steps.map((s) => Math.max((s.value / max) * 100, 6));
+  const widths = rawWidths.reduce<number[]>((acc, w, i) => {
+    acc.push(i === 0 ? w : Math.min(w, acc[i - 1]));
+    return acc;
+  }, []);
 
   return (
     <div className="space-y-6">
