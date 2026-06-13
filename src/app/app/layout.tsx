@@ -67,6 +67,7 @@ export default async function AppLayout({
     website: org?.website ?? null,
     descriptionMd: org?.descriptionMd ?? null,
     logo: org?.logo ?? null,
+    slug: org?.slug ?? null,
   };
 
   const sidebarProps = {

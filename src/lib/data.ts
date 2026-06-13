@@ -237,6 +237,36 @@ export async function getPublicVacancy(slug: string) {
   return v ?? null;
 }
 
+/** A company (organization) by its public page slug. */
+export async function getCompanyBySlug(slug: string) {
+  const [o] = await db
+    .select()
+    .from(organization)
+    .where(eq(organization.slug, slug))
+    .limit(1);
+  return o ?? null;
+}
+
+/** Published vacancies for an org — the active listings on its company page. */
+export async function getPublishedVacanciesByOrg(organizationId: string) {
+  return db
+    .select({
+      id: vacancy.id,
+      title: vacancy.title,
+      publicSlug: vacancy.publicSlug,
+      details: vacancy.details,
+      createdAt: vacancy.createdAt,
+    })
+    .from(vacancy)
+    .where(
+      and(
+        eq(vacancy.organizationId, organizationId),
+        eq(vacancy.status, "published"),
+      ),
+    )
+    .orderBy(desc(vacancy.createdAt));
+}
+
 export async function getCandidateByToken(token: string) {
   const [c] = await db
     .select()

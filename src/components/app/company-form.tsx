@@ -18,7 +18,19 @@ export type CompanyProfile = {
   website: string | null;
   descriptionMd: string | null;
   logo: string | null;
+  slug: string | null;
 };
+
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+
+/** Mirror of slugify() for live preview — keep in sync with lib/slug.ts. */
+function toSlug(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
 
 export function CompanyForm({ company }: { company: CompanyProfile }) {
   const t = useT();
@@ -26,6 +38,7 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
   const [name, setName] = useState(company.name);
   const [website, setWebsite] = useState(company.website ?? "");
   const [description, setDescription] = useState(company.descriptionMd ?? "");
+  const [slug, setSlug] = useState(company.slug ?? "");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | undefined>();
@@ -33,6 +46,7 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
   const logoPreview = logoFile
     ? URL.createObjectURL(logoFile)
     : company.logo ?? null;
+  const slugPreview = toSlug(slug);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +63,12 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
         fd.append("file", logo, "logo.webp");
         await uploadCompanyLogo(fd);
       }
-      await updateCompany({ name, website, descriptionMd: description });
+      await updateCompany({
+        name,
+        website,
+        descriptionMd: description,
+        slug: slugPreview || undefined,
+      });
       toast.success(t.company.saved);
       setLogoFile(null);
       router.refresh();
@@ -133,6 +152,25 @@ export function CompanyForm({ company }: { company: CompanyProfile }) {
         />
         <p className="text-xs text-muted-foreground">
           {t.company.descriptionHint}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="c-slug">{t.company.pageUrlLabel}</Label>
+        <div className="flex items-center rounded-lg border bg-card focus-within:border-primary/50">
+          <span className="shrink-0 border-r px-2.5 py-2 text-xs text-muted-foreground">
+            {(appUrl || "").replace(/^https?:\/\//, "")}/c/
+          </span>
+          <input
+            id="c-slug"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="acme"
+            className="min-w-0 flex-1 bg-transparent px-2.5 py-2 text-sm outline-none"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t.company.pageUrlHint}
         </p>
       </div>
 

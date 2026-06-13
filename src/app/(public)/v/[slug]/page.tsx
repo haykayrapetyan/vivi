@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Archive, Video } from "lucide-react";
+import Link from "next/link";
+import { Archive, ArrowUpRight, Video } from "lucide-react";
 import {
   getOrganization,
   getPublicVacancy,
@@ -69,23 +70,39 @@ export default async function PublicVacancyPage({
       />
       <ViewBeacon slug={slug} />
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2">
-          {companyRow?.logo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={companyRow.logo}
-              alt={companyName ?? ""}
-              className="size-7 rounded-md object-cover"
-            />
-          ) : (
+        {companyRow?.slug ? (
+          <Link
+            href={`/c/${companyRow.slug}`}
+            className="group flex items-center gap-2"
+            title={t.publicVacancy.viewCompany}
+          >
+            {companyRow.logo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={companyRow.logo}
+                alt={companyName ?? ""}
+                className="size-7 rounded-md object-cover"
+              />
+            ) : (
+              <span className="flex size-7 items-center justify-center rounded-md bg-primary/15 text-xs font-semibold text-primary">
+                {(companyName ?? "V").slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            <span className="text-base font-semibold tracking-tight">
+              {companyName ?? "Vivi"}
+            </span>
+            <ArrowUpRight className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </Link>
+        ) : (
+          <div className="flex items-center gap-2">
             <span className="flex size-7 items-center justify-center rounded-md bg-primary/15 text-xs font-semibold text-primary">
               {(companyName ?? "V").slice(0, 1).toUpperCase()}
             </span>
-          )}
-          <span className="text-base font-semibold tracking-tight">
-            {companyName ?? "Vivi"}
-          </span>
-        </div>
+            <span className="text-base font-semibold tracking-tight">
+              {companyName ?? "Vivi"}
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <ThemeToggle />
         </div>

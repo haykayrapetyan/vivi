@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organization } from "@/lib/db/schema";
 import { requireUserAndOrg } from "@/lib/session";
 import { getOrganization } from "@/lib/data";
+import { slugify } from "@/lib/slug";
 import { normalizeUrl } from "@/lib/company-ai";
 import { fetchAndStoreLogo, logoKey, logoUrl } from "@/lib/logo";
 import { saveObject } from "@/lib/storage";
@@ -25,6 +26,8 @@ export async function updateCompany(data: {
   website?: string | null;
   descriptionMd?: string;
   logo?: string | null;
+  /** The public company-page handle (organization.slug). Checked for uniqueness. */
+  slug?: string;
 }) {
   const { organizationId } = await requireUserAndOrg();
   const org = await getOrganization(organizationId);
@@ -40,8 +43,21 @@ export async function updateCompany(data: {
   }
   if (data.logo !== undefined) patch.logo = data.logo?.trim() || null;
 
+  if (data.slug !== undefined && slugify(data.slug) !== org.slug) {
+    const slug = slugify(data.slug);
+    if (slug.length < 2) throw new Error("Company URL is too short");
+    const [taken] = await db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(and(eq(organization.slug, slug), ne(organization.id, organizationId)))
+      .limit(1);
+    if (taken) throw new Error("That company URL is already taken");
+    patch.slug = slug;
+  }
+
   await db.update(organization).set(patch).where(eq(organization.id, organizationId));
   revalidatePath("/app");
+  if (patch.slug) revalidatePath(`/c/${patch.slug}`);
 }
 
 /** Uploads a company logo (multipart form, field "file") to R2 and points the
