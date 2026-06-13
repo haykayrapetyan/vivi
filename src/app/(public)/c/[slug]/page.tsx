@@ -11,6 +11,7 @@ import { interpolate } from "@/lib/i18n/dictionaries";
 import { vacancyParamRows } from "@/lib/vacancy-params";
 import { VacancyHighlights } from "@/components/vacancy-highlights";
 import { Markdown } from "@/components/markdown";
+import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export async function generateMetadata({
@@ -48,23 +49,9 @@ export default async function CompanyPage({
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 bg-[radial-gradient(45%_60%_at_50%_0%,color-mix(in_oklch,var(--primary)_16%,transparent),transparent)]"
       />
       <header className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 py-5">
-        <div className="flex min-w-0 items-center gap-2">
-          {company.logo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={company.logo}
-              alt={company.name}
-              className="size-7 rounded-md object-cover"
-            />
-          ) : (
-            <span className="flex size-7 items-center justify-center rounded-md bg-primary/15 text-xs font-semibold text-primary">
-              {company.name.slice(0, 1).toUpperCase()}
-            </span>
-          )}
-          <span className="truncate text-base font-semibold tracking-tight">
-            {company.name}
-          </span>
-        </div>
+        <Link href="/" aria-label="Vivi" className="transition-opacity hover:opacity-80">
+          <Logo />
+        </Link>
         <ThemeToggle />
       </header>
 
